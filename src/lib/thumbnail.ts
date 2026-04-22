@@ -1,3 +1,5 @@
+import { heicTo, isHeic } from "heic-to/csp";
+
 /**
  * Client-side image preparation helpers.
  *
@@ -12,6 +14,38 @@ type DecodedImage = {
   height: number;
   dispose: () => void;
 };
+
+async function normalizeInputFile(file: File): Promise<File | Blob> {
+  const lowerName = file.name.toLowerCase();
+  const maybeHeic =
+    file.type === "image/heic" ||
+    file.type === "image/heif" ||
+    lowerName.endsWith(".heic") ||
+    lowerName.endsWith(".heif");
+
+  if (!maybeHeic) return file;
+
+  const confirmedHeic = await isHeic(file).catch(() => true);
+  if (!confirmedHeic) return file;
+
+  try {
+    const converted = await heicTo({
+      blob: file,
+      type: "image/jpeg",
+      quality: 0.92,
+    });
+
+    return converted instanceof Blob
+      ? new File([converted], lowerName.replace(/\.hei[cf]$/i, ".jpg") || "upload.jpg", {
+          type: "image/jpeg",
+        })
+      : file;
+  } catch {
+    throw new Error(
+      "Your gallery photo format is not supported by this browser yet. Please pick a JPG/PNG photo or take a new photo now.",
+    );
+  }
+}
 
 function canvasToBlob(
   canvas: HTMLCanvasElement,
@@ -57,7 +91,8 @@ async function loadHtmlImage(src: string): Promise<HTMLImageElement> {
 }
 
 async function decodeImageSource(file: File): Promise<DecodedImage> {
-  const objectUrl = URL.createObjectURL(file);
+  const normalizedFile = await normalizeInputFile(file);
+  const objectUrl = URL.createObjectURL(normalizedFile);
 
   try {
     const image = await loadHtmlImage(objectUrl);
@@ -77,7 +112,7 @@ async function decodeImageSource(file: File): Promise<DecodedImage> {
   }
 
   try {
-    const image = await loadHtmlImage(await fileToDataUrl(file));
+    const image = await loadHtmlImage(await fileToDataUrl(normalizedFile instanceof File ? normalizedFile : new File([normalizedFile], "upload.jpg", { type: normalizedFile.type || "image/jpeg" })));
     const width = image.naturalWidth || image.width;
     const height = image.naturalHeight || image.height;
 
@@ -94,7 +129,7 @@ async function decodeImageSource(file: File): Promise<DecodedImage> {
   }
 
   try {
-    const bitmap = await createImageBitmap(file);
+    const bitmap = await createImageBitmap(normalizedFile);
     if (bitmap.width > 0 && bitmap.height > 0) {
       return {
         source: bitmap,
