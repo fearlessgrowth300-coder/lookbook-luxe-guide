@@ -368,12 +368,46 @@ function EmptyState({ onAdd, hasItems }: { onAdd: () => void; hasItems: boolean 
   );
 }
 
+type UploadStage = "idle" | "preparing" | "uploading-thumb" | "uploading-raw" | "saving" | "enhancing" | "done";
+
+const STAGES: { id: UploadStage; label: string }[] = [
+  { id: "preparing", label: "Preparing photo" },
+  { id: "uploading-thumb", label: "Uploading thumbnail" },
+  { id: "uploading-raw", label: "Uploading raw image" },
+  { id: "saving", label: "Saving to wardrobe" },
+  { id: "enhancing", label: "Waiting for enhanced image" },
+];
+
 function UploadSheet({ onClose }: { onClose: () => void }) {
   const { user } = useAuth();
   const qc = useQueryClient();
   const [dragOver, setDragOver] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [stage, setStage] = useState<UploadStage>("idle");
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
+  const dropInputRef = useRef<HTMLInputElement>(null);
+  const insertedItemIdRef = useRef<string | null>(null);
+
+  const uploading = stage !== "idle" && stage !== "done";
+
+  // Watch the wardrobe cache for the inserted item to gain its enhanced image
+  const wardrobe = qc.getQueryData<WardrobeItem[]>(["wardrobe", user?.id]);
+  useEffect(() => {
+    if (stage !== "enhancing" || !insertedItemIdRef.current) return;
+    const item = wardrobe?.find((i) => i.id === insertedItemIdRef.current);
+    if (item?.enhanced_path) {
+      setStage("done");
+      const t = setTimeout(() => onClose(), 700);
+      return () => clearTimeout(t);
+    }
+  }, [wardrobe, stage, onClose]);
+
+  const resetInputs = () => {
+    if (cameraInputRef.current) cameraInputRef.current.value = "";
+    if (galleryInputRef.current) galleryInputRef.current.value = "";
+    if (dropInputRef.current) dropInputRef.current.value = "";
+  };
 
   const handleFile = async (file: File) => {
     if (!user) return;
@@ -381,25 +415,28 @@ function UploadSheet({ onClose }: { onClose: () => void }) {
       toast("File too large (max 10 MB)");
       return;
     }
-    setUploading(true);
+    setErrorMsg(null);
     try {
       const itemId = crypto.randomUUID();
-      // Always re-encode to JPEG so HEIC and oversized phone photos work reliably.
       const rawPath = `${user.id}/${itemId}.jpg`;
       const thumbPath = `${user.id}/${itemId}.jpg`;
 
-      // Decode once, then derive raw upload + thumb + placeholder from the same source.
+      setStage("preparing");
       const { rawBlob, thumbBlob, placeholder } = await prepareUploadAssets(file);
 
-      // Upload raw + thumb in parallel
-      const [rawUp, thumbUp] = await Promise.all([
-        supabase.storage.from("wardrobe-raw").upload(rawPath, rawBlob, { contentType: "image/jpeg" }),
-        supabase.storage.from("wardrobe-thumbs").upload(thumbPath, thumbBlob, { contentType: "image/jpeg" }),
-      ]);
-      if (rawUp.error) throw rawUp.error;
+      setStage("uploading-thumb");
+      const thumbUp = await supabase.storage
+        .from("wardrobe-thumbs")
+        .upload(thumbPath, thumbBlob, { contentType: "image/jpeg" });
       if (thumbUp.error) throw thumbUp.error;
 
-      // Insert row
+      setStage("uploading-raw");
+      const rawUp = await supabase.storage
+        .from("wardrobe-raw")
+        .upload(rawPath, rawBlob, { contentType: "image/jpeg" });
+      if (rawUp.error) throw rawUp.error;
+
+      setStage("saving");
       const { error: insertErr } = await supabase.from("wardrobe_items").insert({
         id: itemId,
         user_id: user.id,
@@ -409,42 +446,55 @@ function UploadSheet({ onClose }: { onClose: () => void }) {
       });
       if (insertErr) throw insertErr;
 
-      // Refresh grid immediately
+      insertedItemIdRef.current = itemId;
       qc.invalidateQueries({ queryKey: ["wardrobe", user.id] });
-
-      // Fire-and-forget mock enhance + analyze (would be edge fn in Pass 2)
-      (async () => {
-        const [bg, analysis] = await Promise.all([
-          mockRemoveBackground({ user_id: user.id, item_id: itemId, raw_path: rawPath }),
-          mockAnalyzeGarment({ user_id: user.id, item_id: itemId, enhanced_path: `${user.id}/${itemId}.png` }),
-        ]);
-        await supabase
-          .from("wardrobe_items")
-          .update({
-            enhanced_path: bg.enhanced_path,
-            category: analysis.category,
-            subcategory: analysis.subcategory,
-            color_primary: analysis.color_primary,
-            color_secondary: analysis.color_secondary,
-            material: analysis.material,
-            season: analysis.season,
-            formality_score: analysis.formality_score,
-            tags: analysis.tags,
-          })
-          .eq("id", itemId);
-        // realtime subscription will refetch
-      })();
-
       toast("Added to wardrobe");
-      onClose();
+
+      setStage("enhancing");
+
+      // Fire-and-forget mock enhance + analyze
+      (async () => {
+        try {
+          const [bg, analysis] = await Promise.all([
+            mockRemoveBackground({ user_id: user.id, item_id: itemId, raw_path: rawPath }),
+            mockAnalyzeGarment({
+              user_id: user.id,
+              item_id: itemId,
+              enhanced_path: `${user.id}/${itemId}.png`,
+            }),
+          ]);
+          await supabase
+            .from("wardrobe_items")
+            .update({
+              enhanced_path: bg.enhanced_path,
+              category: analysis.category,
+              subcategory: analysis.subcategory,
+              color_primary: analysis.color_primary,
+              color_secondary: analysis.color_secondary,
+              material: analysis.material,
+              season: analysis.season,
+              formality_score: analysis.formality_score,
+              tags: analysis.tags,
+            })
+            .eq("id", itemId);
+          // realtime subscription will refetch and the effect above closes the sheet
+        } catch (err) {
+          console.error("Enhance failed", err);
+        }
+      })();
     } catch (e) {
       const message = e instanceof Error ? e.message : "Upload failed";
+      setErrorMsg(message);
       toast(message);
+      setStage("idle");
+      insertedItemIdRef.current = null;
     } finally {
-      if (inputRef.current) inputRef.current.value = "";
-      setUploading(false);
+      resetInputs();
     }
   };
+
+  const onPickGallery = () => galleryInputRef.current?.click();
+  const onPickCamera = () => cameraInputRef.current?.click();
 
   return (
     <motion.div
@@ -453,7 +503,7 @@ function UploadSheet({ onClose }: { onClose: () => void }) {
       exit={{ opacity: 0 }}
       transition={{ duration: dur.hover }}
       className="fixed inset-0 z-50 flex items-end justify-center bg-graphite/40"
-      onClick={onClose}
+      onClick={uploading ? undefined : onClose}
     >
       <motion.div
         initial={{ y: "100%" }}
@@ -461,7 +511,7 @@ function UploadSheet({ onClose }: { onClose: () => void }) {
         exit={{ y: "100%" }}
         transition={{ duration: dur.page, ease: ease.luxury }}
         onClick={(e) => e.stopPropagation()}
-        className="h-[80vh] w-full max-w-[1280px] bg-bone px-6 py-8 md:px-12"
+        className="h-[80vh] w-full max-w-[1280px] overflow-y-auto bg-bone px-6 py-8 md:px-12"
         style={{ borderRadius: "4px 4px 0 0" }}
       >
         <div className="flex items-start justify-between">
@@ -475,57 +525,171 @@ function UploadSheet({ onClose }: { onClose: () => void }) {
           </div>
           <button
             onClick={onClose}
-            className="text-ink hover:text-graphite"
+            disabled={uploading}
+            className="text-ink hover:text-graphite disabled:opacity-30"
             aria-label="Close"
           >
             <X className="h-5 w-5" strokeWidth={1.25} />
           </button>
         </div>
 
-        <div
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDragOver(true);
-          }}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setDragOver(false);
-            const f = e.dataTransfer.files?.[0];
+        {/* Hidden inputs */}
+        <input
+          ref={cameraInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
             if (f) handleFile(f);
           }}
-          onClick={() => inputRef.current?.click()}
-          className={`mt-8 flex h-[50vh] cursor-pointer flex-col items-center justify-center border border-dashed transition-colors ${
-            dragOver ? "border-graphite bg-linen/40" : "border-ink/40"
-          }`}
-        >
-          <input
-            ref={inputRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            className="hidden"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) handleFile(f);
-            }}
-          />
-          {uploading ? (
-            <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-ink">
-              Uploading…
+        />
+        <input
+          ref={galleryInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) handleFile(f);
+          }}
+        />
+        <input
+          ref={dropInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) handleFile(f);
+          }}
+        />
+
+        {stage === "idle" && (
+          <>
+            <div className="mt-8 grid grid-cols-2 gap-4">
+              <motion.button
+                {...tap}
+                onClick={onPickCamera}
+                className="flex flex-col items-center justify-center gap-3 border border-ink/40 bg-linen/30 py-10 transition-colors hover:border-graphite hover:bg-linen/60"
+              >
+                <Camera className="h-7 w-7 text-graphite" strokeWidth={1.25} />
+                <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-graphite">
+                  Take a photo
+                </span>
+              </motion.button>
+              <motion.button
+                {...tap}
+                onClick={onPickGallery}
+                className="flex flex-col items-center justify-center gap-3 border border-ink/40 bg-linen/30 py-10 transition-colors hover:border-graphite hover:bg-linen/60"
+              >
+                <ImageIcon className="h-7 w-7 text-graphite" strokeWidth={1.25} />
+                <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-graphite">
+                  Choose from gallery
+                </span>
+              </motion.button>
+            </div>
+
+            <div
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragOver(true);
+              }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragOver(false);
+                const f = e.dataTransfer.files?.[0];
+                if (f) handleFile(f);
+              }}
+              onClick={() => dropInputRef.current?.click()}
+              className={`mt-6 hidden h-40 cursor-pointer flex-col items-center justify-center border border-dashed transition-colors md:flex ${
+                dragOver ? "border-graphite bg-linen/40" : "border-ink/40"
+              }`}
+            >
+              <UploadIcon className="h-6 w-6 text-ink" strokeWidth={1} />
+              <p className="mt-3 font-mono text-[11px] uppercase tracking-[0.16em] text-ink">
+                Or drop an image here
+              </p>
+            </div>
+
+            <p className="mt-6 text-center font-mono text-[10px] uppercase tracking-[0.16em] text-ink">
+              JPG · PNG · HEIC · 10 MB max
             </p>
-          ) : (
-            <>
-              <UploadIcon className="h-8 w-8 text-ink" strokeWidth={1} />
-              <p className="mt-4 font-display text-[20px] font-light text-graphite">
-                Take a photo, or tap to browse
-              </p>
-              <p className="mt-2 font-mono text-[11px] uppercase tracking-[0.16em] text-ink">
-                JPG · PNG · HEIC · 10 MB max
-              </p>
-            </>
-          )}
-        </div>
+
+            {errorMsg && (
+              <p className="mt-4 text-center font-mono text-[11px] text-noir">{errorMsg}</p>
+            )}
+          </>
+        )}
+
+        {stage !== "idle" && (
+          <div className="mt-10">
+            <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-ink">
+              {stage === "done" ? "Complete" : "In progress"}
+            </p>
+            <h3 className="mt-2 font-display text-[22px] font-light text-graphite">
+              {stage === "done" ? "Your piece is ready." : "Hang tight—curating your piece."}
+            </h3>
+
+            <ol className="mt-8 space-y-4">
+              {STAGES.map((s, idx) => {
+                const currentIdx = STAGES.findIndex((x) => x.id === stage);
+                const isDone =
+                  stage === "done" || (currentIdx > -1 && idx < currentIdx);
+                const isActive = s.id === stage;
+                return (
+                  <li key={s.id} className="flex items-center gap-4">
+                    <div
+                      className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border transition-colors ${
+                        isDone
+                          ? "border-graphite bg-graphite text-bone"
+                          : isActive
+                            ? "border-graphite text-graphite"
+                            : "border-ink/30 text-ink/40"
+                      }`}
+                    >
+                      {isDone ? (
+                        <Check className="h-3 w-3" strokeWidth={2} />
+                      ) : isActive ? (
+                        <motion.span
+                          className="h-1.5 w-1.5 rounded-full bg-graphite"
+                          animate={{ opacity: [0.3, 1, 0.3] }}
+                          transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut" }}
+                        />
+                      ) : (
+                        <span className="h-1.5 w-1.5 rounded-full bg-ink/30" />
+                      )}
+                    </div>
+                    <span
+                      className={`font-mono text-[12px] uppercase tracking-[0.16em] transition-colors ${
+                        isDone || isActive ? "text-graphite" : "text-ink/50"
+                      }`}
+                    >
+                      {s.label}
+                    </span>
+                  </li>
+                );
+              })}
+            </ol>
+
+            <div className="mt-10 h-px w-full overflow-hidden bg-linen">
+              <motion.div
+                className="h-full bg-graphite"
+                initial={{ width: "0%" }}
+                animate={{
+                  width: `${
+                    stage === "done"
+                      ? 100
+                      : ((STAGES.findIndex((x) => x.id === stage) + 1) / STAGES.length) * 100
+                  }%`,
+                }}
+                transition={{ duration: 0.5, ease: ease.luxury }}
+              />
+            </div>
+          </div>
+        )}
       </motion.div>
     </motion.div>
   );
