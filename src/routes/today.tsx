@@ -14,12 +14,25 @@ import { type Occasion } from "@/server/mock-ai";
 import { suggestOutfit } from "@/server/functions/suggestOutfit";
 import { generateDailyPrompt } from "@/server/functions/generateDailyPrompt";
 
+const ALL_OCC_IDS = ["office", "casual", "evening", "athletic", "formal", "travel"] as const;
+
 export const Route = createFileRoute("/today")({
   component: () => (
     <ProtectedRoute>
       <TodayPage />
     </ProtectedRoute>
   ),
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { occasion?: Occasion } => {
+    const occ = search.occasion;
+    return {
+      occasion:
+        typeof occ === "string" && (ALL_OCC_IDS as readonly string[]).includes(occ)
+          ? (occ as Occasion)
+          : undefined,
+    };
+  },
   head: () => ({ meta: [{ title: "Today — Atelier" }] }),
 });
 
