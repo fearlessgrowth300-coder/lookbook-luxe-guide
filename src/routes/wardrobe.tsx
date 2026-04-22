@@ -952,7 +952,7 @@ function UploadSheet({
                 e.preventDefault();
                 setDragOver(false);
                 const f = e.dataTransfer.files?.[0];
-                if (f) pickFile(f);
+                if (f) void pickFile(f);
               }}
               onClick={() => dropInputRef.current?.click()}
               className={`mt-6 hidden h-40 cursor-pointer flex-col items-center justify-center border border-dashed transition-colors md:flex ${
