@@ -32,7 +32,10 @@ function LoginPage() {
     register,
     handleSubmit,
     formState: { errors },
-  } = useForm<Form>({ resolver: zodResolver(Schema) });
+  } = useForm<Form>({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    resolver: zodResolver(Schema as any),
+  });
 
   useEffect(() => {
     if (!loading && user) navigate({ to: "/today", replace: true });

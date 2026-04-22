@@ -34,7 +34,7 @@ function SettingsPage() {
   });
 
   const update = useMutation({
-    mutationFn: async (patch: Record<string, unknown>) => {
+    mutationFn: async (patch: { style_archetype?: string; climate?: string }) => {
       const { error } = await supabase.from("profiles").update(patch).eq("id", user!.id);
       if (error) throw error;
     },
