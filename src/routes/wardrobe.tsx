@@ -240,6 +240,40 @@ function WardrobePage() {
         </div>
       </header>
 
+      {/* Fix-my-wardrobe banner (only when mock-AI subcategories detected) */}
+      <AnimatePresence>
+        {showBanner && (
+          <motion.button
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: dur.page, ease: ease.luxury }}
+            onClick={() => setEditItemId(miscategorized[0].id)}
+            className="block w-full border-b border-linen bg-linen/60 hover:bg-linen"
+          >
+            <div className="mx-auto flex max-w-[1280px] items-center justify-between gap-4 px-6 py-3 md:px-12 lg:px-24">
+              <div className="flex items-center gap-3 text-left">
+                <Sparkles className="h-4 w-4 shrink-0 text-graphite" strokeWidth={1.25} />
+                <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-graphite">
+                  Some items were auto-categorized. Tap to review.
+                </p>
+              </div>
+              <span
+                role="button"
+                tabIndex={0}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setBannerDismissed(true);
+                }}
+                className="font-mono text-[10px] uppercase tracking-[0.2em] text-ink hover:text-graphite"
+              >
+                Dismiss
+              </span>
+            </div>
+          </motion.button>
+        )}
+      </AnimatePresence>
+
       {/* Grid */}
       <section className="mx-auto max-w-[1280px] px-6 py-12 md:px-12 lg:px-24">
         {itemsQuery.isLoading ? (
