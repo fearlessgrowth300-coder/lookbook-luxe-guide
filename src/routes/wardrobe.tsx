@@ -1226,12 +1226,8 @@ function EditSheet({
     ? supabase.storage.from("wardrobe-thumbs").getPublicUrl(item.thumbnail_path).data.publicUrl
     : null;
   // wardrobe-thumbs is the public bucket; wardrobe-enhanced is private and
-  // its public URL 404s. Prefer the thumb, then fall back to enhanced.
-  const [previewUrl, setPreviewUrl] = useState<string | null>(thumbUrl ?? enhancedUrl);
-
-  useEffect(() => {
-    setPreviewUrl(thumbUrl ?? enhancedUrl);
-  }, [thumbUrl, enhancedUrl]);
+  // its public URL returns 403. Prefer the public thumb here.
+  const previewUrl = thumbUrl ?? enhancedUrl;
 
   const finish = (advance: boolean) => {
     qc.invalidateQueries({ queryKey: ["wardrobe", user?.id] });
