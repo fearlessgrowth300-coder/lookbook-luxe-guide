@@ -21,10 +21,12 @@ import {
   UploadError,
 } from "@/lib/upload-errors";
 import {
-  mockRemoveBackground,
   mockAnalyzeGarment,
   type Category,
 } from "@/server/mock-ai";
+import { removeBg, warmBgRemoval } from "@/lib/bg-removal";
+
+const BG_REMOVAL_FIRST_RUN_KEY = "atelier:bg-removal-seen";
 
 export const Route = createFileRoute("/wardrobe")({
   component: () => (
@@ -544,14 +546,23 @@ function EmptyState({ onAdd, hasItems }: { onAdd: () => void; hasItems: boolean 
   );
 }
 
-type UploadStage = "idle" | "preparing" | "uploading-thumb" | "uploading-raw" | "saving" | "enhancing" | "done";
+type UploadStage =
+  | "idle"
+  | "preparing"
+  | "removing-bg"
+  | "uploading-thumb"
+  | "uploading-raw"
+  | "uploading-enhanced"
+  | "saving"
+  | "done";
 
 const STAGES: { id: UploadStage; label: string }[] = [
   { id: "preparing", label: "Preparing photo" },
+  { id: "removing-bg", label: "Removing background" },
   { id: "uploading-thumb", label: "Uploading thumbnail" },
   { id: "uploading-raw", label: "Uploading raw image" },
+  { id: "uploading-enhanced", label: "Uploading cutout" },
   { id: "saving", label: "Saving to wardrobe" },
-  { id: "enhancing", label: "Waiting for enhanced image" },
 ];
 
 function UploadSheet({
@@ -574,7 +585,10 @@ function UploadSheet({
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const dropInputRef = useRef<HTMLInputElement>(null);
-  const insertedItemIdRef = useRef<string | null>(null);
+  const [bgFirstRun, setBgFirstRun] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return !window.localStorage.getItem(BG_REMOVAL_FIRST_RUN_KEY);
+  });
   const [debugLog, setDebugLog] = useState<{ ts: number; step: string; detail?: string }[]>([]);
   const debugMode = useMemo(() => {
     if (typeof window === "undefined") return false;
@@ -586,41 +600,16 @@ function UploadSheet({
   const uploading = stage !== "idle" && stage !== "done";
   const categorizing = !!pickedFile && stage === "idle";
 
-  // Watch the wardrobe cache reactively so the sheet auto-closes when enhancement completes.
-  const wardrobe = useQuery({
-    queryKey: ["wardrobe", user?.id],
-    enabled: !!user,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("wardrobe_items")
-        .select(
-          "id, raw_path, enhanced_path, thumbnail_path, placeholder, category, subcategory, color_primary, formality_score",
-        )
-        .eq("user_id", user!.id)
-        .eq("archived", false)
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return (data ?? []) as WardrobeItem[];
-    },
-  }).data;
-
+  // Pre-warm bg-removal as soon as the sheet opens — gives the user the
+  // best chance the model is downloaded by the time they confirm category.
   useEffect(() => {
-    if (stage !== "enhancing" || !insertedItemIdRef.current) return;
-    const item = wardrobe?.find((i) => i.id === insertedItemIdRef.current);
-    if (item?.enhanced_path) {
-      setStage("done");
-      const t = setTimeout(() => onClose(), 700);
-      return () => clearTimeout(t);
-    }
-  }, [wardrobe, stage, onClose]);
+    void warmBgRemoval();
+  }, []);
 
-  // Safety net: if enhancement never reports back, auto-close after 12s anyway.
+  // Auto-close the sheet shortly after stage flips to "done".
   useEffect(() => {
-    if (stage !== "enhancing") return;
-    const t = setTimeout(() => {
-      setStage("done");
-      setTimeout(() => onClose(), 600);
-    }, 12000);
+    if (stage !== "done") return;
+    const t = setTimeout(() => onClose(), 700);
     return () => clearTimeout(t);
   }, [stage, onClose]);
 
@@ -755,13 +744,82 @@ function UploadSheet({
       }
       pushLog("uploaded raw");
 
+      // ── Background removal (client-side, WASM) ─────────────────────────
+      // We attempt to strip the background and upload a transparent PNG to
+      // wardrobe-enhanced. If anything fails (e.g. the model couldn't load),
+      // we still continue with raw + thumb so the user's piece lands in the
+      // gallery — the gallery already falls back to the thumb when the
+      // enhanced image is missing.
+      const enhancedPath = `${user.id}/${itemId}.png`;
+      let enhancedPathToSave: string | null = null;
+      try {
+        setStage("removing-bg");
+        onPendingChange({ id: itemId, previewUrl, stage: "enhancing" });
+        lastUploadStep = "REMOVE BG";
+        pushLog("removing background");
+        const enhancedBlob = await removeBg(rawBlob, (p) => {
+          if (p.progress > 0 && p.progress < 1 && Math.random() < 0.05) {
+            pushLog("bg progress", `${p.step} ${(p.progress * 100).toFixed(0)}%`);
+          }
+        });
+        pushLog(
+          "bg removed",
+          `${(enhancedBlob.size / 1024).toFixed(0)}KB transparent PNG`,
+        );
+
+        setStage("uploading-enhanced");
+        lastUploadStep = "UPLOAD ENHANCED";
+        const enhancedUp = await supabase.storage
+          .from("wardrobe-enhanced")
+          .upload(enhancedPath, enhancedBlob, {
+            contentType: "image/png",
+            upsert: true,
+          });
+        if (enhancedUp.error) {
+          throw new UploadError(
+            enhancedUp.error.message,
+            `UPLOAD ${enhancedUp.error.message}`,
+          );
+        }
+        pushLog("uploaded enhanced");
+        enhancedPathToSave = enhancedPath;
+      } catch (bgErr) {
+        // Non-fatal — log and keep going with thumb-only display.
+        console.error("[bg-removal failed]", bgErr);
+        pushLog(
+          "bg-removal skipped",
+          bgErr instanceof Error ? bgErr.message : "unknown",
+        );
+      }
+
+      // Mark first-run notice as seen — the user has now experienced one
+      // download cycle, no need to warn again.
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(BG_REMOVAL_FIRST_RUN_KEY, "1");
+      }
+
       setStage("saving");
       lastUploadStep = "DB INSERT";
+
+      // Run the supplementary mock analysis in parallel with insert. The
+      // mock fills color/material/season/tags so the gallery has metadata
+      // to show — we INTENTIONALLY skip writing category/subcategory/
+      // formality_score from the mock since those are owned by the user.
+      const analysisPromise = mockAnalyzeGarment({
+        user_id: user.id,
+        item_id: itemId,
+        enhanced_path: enhancedPath,
+      }).catch((err) => {
+        console.error("[analyze failed]", err);
+        return null;
+      });
+
       const { error: insertErr } = await supabase.from("wardrobe_items").insert({
         id: itemId,
         user_id: user.id,
         raw_path: rawPath,
         thumbnail_path: thumbPath,
+        enhanced_path: enhancedPathToSave,
         placeholder,
         category: userCategory,
         subcategory: userSubcategory || null,
@@ -770,43 +828,27 @@ function UploadSheet({
       if (insertErr) throw new DbInsertError(insertErr.message, "DB INSERT FAILED");
       pushLog("db insert ok");
 
-      insertedItemIdRef.current = itemId;
       qc.invalidateQueries({ queryKey: ["wardrobe", user.id] });
       toast("Added to wardrobe");
 
-      setStage("enhancing");
-      onPendingChange({ id: itemId, previewUrl, stage: "enhancing" });
+      // Patch in the analysis fields once they arrive — fire-and-forget.
+      void analysisPromise.then((analysis) => {
+        if (!analysis) return;
+        return supabase
+          .from("wardrobe_items")
+          .update({
+            color_primary: analysis.color_primary,
+            color_secondary: analysis.color_secondary,
+            material: analysis.material,
+            season: analysis.season,
+            tags: analysis.tags,
+          })
+          .eq("id", itemId);
+      });
 
-      // Fire-and-forget mock enhance + analyze. We INTENTIONALLY skip writing
-      // category / subcategory / formality_score from the mock — those are owned
-      // by the user. The mock still fills in color/material/season/tags so the
-      // gallery has something to show.
-      (async () => {
-        try {
-          const [bg, analysis] = await Promise.all([
-            mockRemoveBackground({ user_id: user.id, item_id: itemId, raw_path: rawPath }),
-            mockAnalyzeGarment({
-              user_id: user.id,
-              item_id: itemId,
-              enhanced_path: `${user.id}/${itemId}.png`,
-            }),
-          ]);
-          await supabase
-            .from("wardrobe_items")
-            .update({
-              enhanced_path: bg.enhanced_path,
-              color_primary: analysis.color_primary,
-              color_secondary: analysis.color_secondary,
-              material: analysis.material,
-              season: analysis.season,
-              tags: analysis.tags,
-            })
-            .eq("id", itemId);
-        } catch (err) {
-          console.error("Enhance failed", err);
-        }
-      })();
-
+      setStage("done");
+      onPendingChange(null);
+      URL.revokeObjectURL(previewUrl);
       resetPicked();
     } catch (e) {
       const errorName = e instanceof Error ? e.name : "UnknownError";
@@ -846,7 +888,6 @@ function UploadSheet({
       URL.revokeObjectURL(previewUrl);
       onPendingChange(null);
       setStage("idle");
-      insertedItemIdRef.current = null;
     } finally {
       resetInputs();
     }
@@ -1001,6 +1042,22 @@ function UploadSheet({
             <h3 className="mt-8 font-display text-[24px] font-light text-graphite">
               What is this?
             </h3>
+
+            {bgFirstRun && (
+              <div className="mt-4 flex items-start justify-between gap-3 border-l-2 border-graphite/40 bg-linen/60 px-4 py-3">
+                <p className="font-mono text-[10.5px] uppercase leading-relaxed tracking-[0.12em] text-ink">
+                  First upload downloads image tools (one-time, ~15 MB).
+                  Future uploads are instant.
+                </p>
+                <button
+                  onClick={() => setBgFirstRun(false)}
+                  className="shrink-0 font-mono text-[10px] uppercase tracking-[0.16em] text-ink/70 hover:text-graphite"
+                  aria-label="Dismiss"
+                >
+                  ×
+                </button>
+              </div>
+            )}
 
             <div className="mt-4 grid grid-cols-2 gap-3">
               {CATEGORY_OPTIONS.slice(0, 6).map(({ id, label }) => {

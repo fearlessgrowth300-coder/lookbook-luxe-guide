@@ -1,8 +1,10 @@
 import { Link, useLocation } from "@tanstack/react-router";
 import { motion } from "framer-motion";
 import { Sun, Shirt, Bookmark } from "lucide-react";
+import { useEffect } from "react";
 import { useAuth } from "@/lib/auth";
 import { ease, dur } from "@/lib/motion";
+import { warmBgRemoval } from "@/lib/bg-removal";
 import type { ReactNode } from "react";
 
 const NAV = [
@@ -14,6 +16,13 @@ const NAV = [
 export function Shell({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const { pathname } = useLocation();
+
+  // Pre-warm the background-removal model in the background so the user's
+  // first wardrobe upload doesn't have to wait for the ~15MB download.
+  useEffect(() => {
+    if (!user) return;
+    void warmBgRemoval();
+  }, [user]);
 
   return (
     <div className="min-h-screen bg-bone text-graphite">
