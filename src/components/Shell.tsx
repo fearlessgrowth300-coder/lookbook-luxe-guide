@@ -17,6 +17,13 @@ export function Shell({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const { pathname } = useLocation();
 
+  // Pre-warm the background-removal model in the background so the user's
+  // first wardrobe upload doesn't have to wait for the ~15MB download.
+  useEffect(() => {
+    if (!user) return;
+    void warmBgRemoval();
+  }, [user]);
+
   return (
     <div className="min-h-screen bg-bone text-graphite">
       {/* Top bar */}
