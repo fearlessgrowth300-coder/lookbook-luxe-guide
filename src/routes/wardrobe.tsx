@@ -10,7 +10,7 @@ import { useAuth } from "@/lib/auth";
 import { useUI } from "@/lib/store";
 import { supabase } from "@/integrations/supabase/client";
 import { ease, dur, tap } from "@/lib/motion";
-import { generateThumbnail, generatePlaceholder, downscaleForUpload } from "@/lib/thumbnail";
+import { prepareUploadAssets } from "@/lib/thumbnail";
 import {
   mockRemoveBackground,
   mockAnalyzeGarment,
@@ -373,17 +373,13 @@ function UploadSheet({ onClose }: { onClose: () => void }) {
       const rawPath = `${user.id}/${itemId}.jpg`;
       const thumbPath = `${user.id}/${itemId}.jpg`;
 
-      // Generate downscaled raw + thumbnail + placeholder client-side, in parallel.
-      const [rawBlob, thumb, placeholder] = await Promise.all([
-        downscaleForUpload(file),
-        generateThumbnail(file),
-        generatePlaceholder(file),
-      ]);
+      // Decode once, then derive raw upload + thumb + placeholder from the same source.
+      const { rawBlob, thumbBlob, placeholder } = await prepareUploadAssets(file);
 
       // Upload raw + thumb in parallel
       const [rawUp, thumbUp] = await Promise.all([
         supabase.storage.from("wardrobe-raw").upload(rawPath, rawBlob, { contentType: "image/jpeg" }),
-        supabase.storage.from("wardrobe-thumbs").upload(thumbPath, thumb, { contentType: "image/jpeg" }),
+        supabase.storage.from("wardrobe-thumbs").upload(thumbPath, thumbBlob, { contentType: "image/jpeg" }),
       ]);
       if (rawUp.error) throw rawUp.error;
       if (thumbUp.error) throw thumbUp.error;
@@ -427,7 +423,8 @@ function UploadSheet({ onClose }: { onClose: () => void }) {
       toast("Added to wardrobe");
       onClose();
     } catch (e) {
-      toast(e instanceof Error ? e.message : "Upload failed");
+      const message = e instanceof Error ? e.message : "Upload failed";
+      toast(message);
     } finally {
       setUploading(false);
     }
