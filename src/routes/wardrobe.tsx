@@ -1100,6 +1100,40 @@ function UploadSheet({
             </div>
           </div>
         )}
+
+        {/* Debug panel — opt-in via ?debug=1 */}
+        {debugMode && (
+          <div className="mt-8 border-t border-linen pt-4">
+            <div className="flex items-center justify-between">
+              <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-ink">
+                Debug log · {debugLog.length} steps
+              </p>
+              <button
+                onClick={() => setDebugLog([])}
+                className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink hover:text-graphite"
+              >
+                Clear
+              </button>
+            </div>
+            <div className="mt-3 max-h-56 overflow-y-auto rounded border border-ink/20 bg-linen/40 p-3 font-mono text-[10.5px] leading-relaxed text-graphite">
+              {debugLog.length === 0 ? (
+                <span className="text-ink/60">Pick a file to start logging.</span>
+              ) : (
+                debugLog.map((entry, i) => {
+                  const t0 = debugLog[0].ts;
+                  const offset = ((entry.ts - t0) / 1000).toFixed(2);
+                  return (
+                    <div key={i} className="flex gap-3">
+                      <span className="shrink-0 text-ink/60">+{offset}s</span>
+                      <span className="shrink-0 uppercase">{entry.step}</span>
+                      {entry.detail && <span className="text-ink">{entry.detail}</span>}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        )}
       </motion.div>
     </motion.div>
   );
