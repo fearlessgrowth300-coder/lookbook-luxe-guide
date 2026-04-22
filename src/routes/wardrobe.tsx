@@ -10,10 +10,11 @@ import { useAuth } from "@/lib/auth";
 import { useUI } from "@/lib/store";
 import { supabase } from "@/integrations/supabase/client";
 import { ease, dur, tap } from "@/lib/motion";
-import { prepareUploadAssets, type PreparationStage } from "@/lib/thumbnail";
+import { prepareUploadAssets, type PreparationStage, type PipelineEvent } from "@/lib/thumbnail";
 import {
   DbInsertError,
   DecodeError,
+  getStep,
   ThumbnailError,
   UnsupportedFormatError,
   UploadError,
@@ -573,6 +574,13 @@ function UploadSheet({
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const dropInputRef = useRef<HTMLInputElement>(null);
   const insertedItemIdRef = useRef<string | null>(null);
+  const [debugLog, setDebugLog] = useState<{ ts: number; step: string; detail?: string }[]>([]);
+  const debugMode = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    return new URLSearchParams(window.location.search).get("debug") === "1";
+  }, []);
+  const pushLog = (step: string, detail?: string) =>
+    setDebugLog((prev) => [...prev, { ts: Date.now(), step, detail }]);
 
   const uploading = stage !== "idle" && stage !== "done";
   const categorizing = !!pickedFile && stage === "idle";
@@ -649,36 +657,52 @@ function UploadSheet({
     const userSubcategory = pickedSubcategory.trim();
     const userFormality = pickedFormality;
     setErrorMsg(null);
+    setDebugLog([]);
     const itemId = crypto.randomUUID();
     const previewUrl = URL.createObjectURL(file);
     onPendingChange({ id: itemId, previewUrl, stage: "decoding" });
+    let lastUploadStep = "INIT";
     try {
       const rawPath = `${user.id}/${itemId}.jpg`;
       const thumbPath = `${user.id}/${itemId}.jpg`;
 
       setStage("preparing");
+      lastUploadStep = "PREPARE";
+      const emit = (event: PipelineEvent) => pushLog(event.step, event.detail);
       const { rawBlob, thumbBlob, placeholder } = await prepareUploadAssets(
         file,
         1600,
         0.9,
         0.85,
         (s) => onPendingChange({ id: itemId, previewUrl, stage: s }),
+        emit,
       );
 
       setStage("uploading-thumb");
       onPendingChange({ id: itemId, previewUrl, stage: "uploading" });
+      lastUploadStep = "UPLOAD THUMB";
+      pushLog("uploading thumb", `${(thumbBlob.size / 1024).toFixed(0)}KB`);
       const thumbUp = await supabase.storage
         .from("wardrobe-thumbs")
         .upload(thumbPath, thumbBlob, { contentType: "image/jpeg" });
-      if (thumbUp.error) throw new UploadError(thumbUp.error.message);
+      if (thumbUp.error) {
+        throw new UploadError(thumbUp.error.message, `UPLOAD ${thumbUp.error.message}`);
+      }
+      pushLog("uploaded thumb");
 
       setStage("uploading-raw");
+      lastUploadStep = "UPLOAD RAW";
+      pushLog("uploading raw", `${(rawBlob.size / 1024 / 1024).toFixed(2)}MB`);
       const rawUp = await supabase.storage
         .from("wardrobe-raw")
         .upload(rawPath, rawBlob, { contentType: "image/jpeg" });
-      if (rawUp.error) throw new UploadError(rawUp.error.message);
+      if (rawUp.error) {
+        throw new UploadError(rawUp.error.message, `UPLOAD ${rawUp.error.message}`);
+      }
+      pushLog("uploaded raw");
 
       setStage("saving");
+      lastUploadStep = "DB INSERT";
       const { error: insertErr } = await supabase.from("wardrobe_items").insert({
         id: itemId,
         user_id: user.id,
@@ -689,7 +713,8 @@ function UploadSheet({
         subcategory: userSubcategory || null,
         formality_score: userFormality,
       });
-      if (insertErr) throw new DbInsertError(insertErr.message);
+      if (insertErr) throw new DbInsertError(insertErr.message, "DB INSERT FAILED");
+      pushLog("db insert ok");
 
       insertedItemIdRef.current = itemId;
       qc.invalidateQueries({ queryKey: ["wardrobe", user.id] });
@@ -730,17 +755,40 @@ function UploadSheet({
 
       resetPicked();
     } catch (e) {
-      const isKnown =
-        e instanceof UnsupportedFormatError ||
-        e instanceof DecodeError ||
-        e instanceof ThumbnailError ||
-        e instanceof UploadError ||
-        e instanceof DbInsertError;
-      const name = isKnown && e instanceof Error ? e.name : "UploadError";
-      const message = e instanceof Error ? e.message : "Upload failed";
-      console.error(`[upload:${name}]`, { name: file.name, size: file.size, type: file.type }, e);
-      setErrorMsg(`${name}: ${message}`);
-      toast.error(`${name}: ${message}`);
+      const errorName = e instanceof Error ? e.name : "UnknownError";
+      const errorMessage = e instanceof Error ? e.message : "Upload failed";
+      const errorStack = e instanceof Error ? e.stack : undefined;
+      const step = getStep(e, lastUploadStep);
+      const truncated = errorMessage.length > 120 ? `${errorMessage.slice(0, 117)}…` : errorMessage;
+
+      // Structured diagnostic — this is what we use to debug.
+      console.error("[upload pipeline failed]", {
+        step,
+        fileName: file.name,
+        fileType: file.type,
+        fileSize: file.size,
+        userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "n/a",
+        errorName,
+        errorMessage,
+        errorStack,
+      });
+
+      pushLog(`failed: ${step}`, truncated);
+
+      // Three-line rich toast.
+      toast.error("Couldn't prepare this photo.", {
+        description: (
+          <div className="space-y-1">
+            <div className="font-mono text-[12px] uppercase tracking-[0.16em] text-ink">
+              {step}
+            </div>
+            <div className="font-mono text-[11px] text-ink/60">{truncated}</div>
+          </div>
+        ),
+        duration: 8000,
+      });
+
+      setErrorMsg(`${step}: ${truncated}`);
       URL.revokeObjectURL(previewUrl);
       onPendingChange(null);
       setStage("idle");
@@ -790,13 +838,14 @@ function UploadSheet({
           </button>
         </div>
 
-        {/* Hidden inputs */}
+        {/* Hidden inputs — kept off-screen rather than display:none so iOS still
+            registers the programmatic click() from the visible buttons. */}
         <input
           ref={cameraInputRef}
           type="file"
-          accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+          accept="image/*"
           capture="environment"
-          className="hidden"
+          style={{ position: "absolute", opacity: 0, pointerEvents: "none", width: 1, height: 1 }}
           onChange={(e) => {
             const f = e.target.files?.[0];
             if (f) pickFile(f);
@@ -806,7 +855,7 @@ function UploadSheet({
           ref={galleryInputRef}
           type="file"
           accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
-          className="hidden"
+          style={{ position: "absolute", opacity: 0, pointerEvents: "none", width: 1, height: 1 }}
           onChange={(e) => {
             const f = e.target.files?.[0];
             if (f) pickFile(f);
@@ -816,7 +865,7 @@ function UploadSheet({
           ref={dropInputRef}
           type="file"
           accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
-          className="hidden"
+          style={{ position: "absolute", opacity: 0, pointerEvents: "none", width: 1, height: 1 }}
           onChange={(e) => {
             const f = e.target.files?.[0];
             if (f) pickFile(f);
@@ -1048,6 +1097,40 @@ function UploadSheet({
                 }}
                 transition={{ duration: 0.5, ease: ease.luxury }}
               />
+            </div>
+          </div>
+        )}
+
+        {/* Debug panel — opt-in via ?debug=1 */}
+        {debugMode && (
+          <div className="mt-8 border-t border-linen pt-4">
+            <div className="flex items-center justify-between">
+              <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-ink">
+                Debug log · {debugLog.length} steps
+              </p>
+              <button
+                onClick={() => setDebugLog([])}
+                className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink hover:text-graphite"
+              >
+                Clear
+              </button>
+            </div>
+            <div className="mt-3 max-h-56 overflow-y-auto rounded border border-ink/20 bg-linen/40 p-3 font-mono text-[10.5px] leading-relaxed text-graphite">
+              {debugLog.length === 0 ? (
+                <span className="text-ink/60">Pick a file to start logging.</span>
+              ) : (
+                debugLog.map((entry, i) => {
+                  const t0 = debugLog[0].ts;
+                  const offset = ((entry.ts - t0) / 1000).toFixed(2);
+                  return (
+                    <div key={i} className="flex gap-3">
+                      <span className="shrink-0 text-ink/60">+{offset}s</span>
+                      <span className="shrink-0 uppercase">{entry.step}</span>
+                      {entry.detail && <span className="text-ink">{entry.detail}</span>}
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
         )}
