@@ -10,10 +10,11 @@ import { useAuth } from "@/lib/auth";
 import { useUI } from "@/lib/store";
 import { supabase } from "@/integrations/supabase/client";
 import { ease, dur, tap } from "@/lib/motion";
-import { prepareUploadAssets, type PreparationStage } from "@/lib/thumbnail";
+import { prepareUploadAssets, type PreparationStage, type PipelineEvent } from "@/lib/thumbnail";
 import {
   DbInsertError,
   DecodeError,
+  getStep,
   ThumbnailError,
   UnsupportedFormatError,
   UploadError,
