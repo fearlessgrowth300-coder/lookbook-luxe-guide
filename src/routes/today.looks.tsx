@@ -54,6 +54,9 @@ interface OutfitRecord {
   rationale: string | null;
   occasion: string | null;
   saved: boolean | null;
+  name: string | null;
+  look_sequence: number | null;
+  batch_id: string | null;
   context: any;
 }
 
