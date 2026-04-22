@@ -42,6 +42,33 @@ const FILTERS: { id: Category | "all"; label: string }[] = [
   { id: "accessory", label: "Accessories" },
 ];
 
+const CATEGORY_OPTIONS: { id: Category; label: string }[] = [
+  { id: "top", label: "Top" },
+  { id: "bottom", label: "Bottom" },
+  { id: "outerwear", label: "Outerwear" },
+  { id: "dress", label: "Dress" },
+  { id: "shoes", label: "Shoes" },
+  { id: "accessory", label: "Accessory" },
+  { id: "bag", label: "Bag" },
+];
+
+const FORMALITY_OPTIONS: { label: string; score: number }[] = [
+  { label: "Casual", score: 3 },
+  { label: "Smart", score: 6 },
+  { label: "Formal", score: 9 },
+];
+
+// Subcategories that came from the mock AI archetypes.
+// If any item carries one of these, we surface the "Fix my wardrobe" banner.
+const MOCK_SUBCATEGORIES = new Set([
+  "oxford shirt",
+  "wool trousers",
+  "wool coat",
+  "leather loafer",
+  "silk scarf",
+  "midi dress",
+]);
+
 interface WardrobeItem {
   id: string;
   raw_path: string;
