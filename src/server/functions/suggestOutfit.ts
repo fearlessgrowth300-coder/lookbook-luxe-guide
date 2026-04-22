@@ -233,13 +233,13 @@ Return STRICT JSON, no markdown, no prose:
       let raw: string;
       try {
         raw = await chatCompletion({
-          model: "openai/gpt-5",
+          model: "google/gemini-2.5-flash",
           messages: [
             { role: "system", content: SYSTEM_PROMPT },
             { role: "user", content: userPrompt },
           ],
           json: true,
-          timeoutMs: 60_000,
+          timeoutMs: 45_000,
         });
       } catch (err) {
         if (err instanceof AIGatewayError) {
@@ -252,6 +252,17 @@ Return STRICT JSON, no markdown, no prose:
                   ? "AI is busy. Try again in a moment."
                   : "AI credits exhausted on the workspace.",
             };
+          }
+          if (err.code === "timeout") {
+            if (attempt === 1) {
+              return {
+                error: "ai_unavailable" as const,
+                code: "timeout" as const,
+                message: "AI took too long. Try again.",
+              };
+            }
+            lastError = err.message;
+            continue;
           }
         }
         if (attempt === 1) throw err;
