@@ -20,6 +20,8 @@ export interface ChatCompletionOptions {
   model: string;
   messages: ChatMessage[];
   temperature?: number;
+  /** Max tokens in the assistant response. */
+  max_tokens?: number;
   /** Forces the model to return a JSON object. */
   json?: boolean;
   /** Hard timeout in ms (default 30s for chat, callers can extend). */
@@ -68,6 +70,7 @@ export async function chatCompletion(
         model: opts.model,
         messages: opts.messages,
         ...(opts.temperature !== undefined && { temperature: opts.temperature }),
+        ...(opts.max_tokens !== undefined && { max_tokens: opts.max_tokens }),
         ...(opts.json && { response_format: { type: "json_object" } }),
       }),
       signal: controller.signal,

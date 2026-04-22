@@ -137,6 +137,48 @@ export type Database = {
         }
         Relationships: []
       }
+      styling_logs: {
+        Row: {
+          archetype: string | null
+          batch_id: string | null
+          candidate_size: number | null
+          created_at: string
+          id: string
+          mood: string | null
+          occasion: string | null
+          reasoning: Json | null
+          temp_c: number | null
+          user_id: string
+          wardrobe_size: number | null
+        }
+        Insert: {
+          archetype?: string | null
+          batch_id?: string | null
+          candidate_size?: number | null
+          created_at?: string
+          id?: string
+          mood?: string | null
+          occasion?: string | null
+          reasoning?: Json | null
+          temp_c?: number | null
+          user_id: string
+          wardrobe_size?: number | null
+        }
+        Update: {
+          archetype?: string | null
+          batch_id?: string | null
+          candidate_size?: number | null
+          created_at?: string
+          id?: string
+          mood?: string | null
+          occasion?: string | null
+          reasoning?: Json | null
+          temp_c?: number | null
+          user_id?: string
+          wardrobe_size?: number | null
+        }
+        Relationships: []
+      }
       wardrobe_items: {
         Row: {
           archived: boolean | null

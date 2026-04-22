@@ -1,16 +1,14 @@
-// Real outfit composition via the Lovable AI Gateway (GPT-5).
+// Real outfit composition via the Lovable AI Gateway.
 //
 // Flow:
 // 1. Auth via requireSupabaseAuth middleware.
-// 2. Rate limit: 30/day per user. If exceeded, return early — never hits AI.
-// 3. Pull wardrobe + profile, apply hard filters (formality range, season,
-//    avoid_colors).
-// 4. Reject if missing critical categories (shoes + tops/dress + bottoms/dress).
-// 5. Send candidate list to GPT-5 with editorial system prompt.
-// 6. Validate ids exist; retry once if hallucinated.
-// 7. Apply hard rules client-side; drop looks that fail.
+// 2. Rate limit: 30/day per user. If exceeded, return early.
+// 3. Pull wardrobe + profile, apply hard filters (formality, season, avoid_colors).
+// 4. Reject if missing critical categories.
+// 5. Send candidate list to AI with editorial system prompt + reasoning shape.
+// 6. Validate + check distinctness; retry once with feedback if needed.
+// 7. Log reasoning to styling_logs (diagnostic, never shown to user).
 // 8. Insert valid looks into `outfits` with shared batch_id.
-// Returns: { batch_id, looks } | { error, ... }
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { checkAndIncrement, RateLimitError } from "@/server/lib/rate-limit";
@@ -36,8 +34,6 @@ interface SuggestInput {
   exclude_batch_id?: string;
 }
 
-// Generous ranges so common smart-casual pieces (formality 6) are eligible
-// for both office and evening looks. The AI applies finer judgment on top.
 const FORMALITY_RANGE: Record<Occasion, [number, number]> = {
   office: [5, 10],
   casual: [1, 7],
@@ -54,73 +50,78 @@ function seasonsForTemp(c: number): string[] {
   return ["summer"];
 }
 
-const SYSTEM_PROMPT = `You are a senior stylist with a restrained editorial sensibility — think SSENSE, Mr Porter editorial, The Row, Lemaire, Margaret Howell. NOT fashion magazine hype, NOT Pinterest maximalism, NOT influencer styling.
+const SYSTEM_PROMPT = `You are a senior stylist with 15 years in editorial and personal styling. Your aesthetic reference is SSENSE, Mr Porter, Totokaelo, The Row, Margaret Howell, Lemaire — restrained, considered, materials-first. You do NOT do trend-chasing, fast fashion, or loud maximalism. You dress clients whose priority is looking quietly correct: right for the occasion, coherent in color and proportion, with one or two deliberate moves that elevate the outfit above generic.
 
-Your job is to compose three distinct, wearable outfits from the user's exact wardrobe — pieces a real person can put on tomorrow morning and feel quietly confident in.
+Your styling philosophy has five pillars:
 
-# How to think (do this internally before choosing items, do not output)
+**1. Anchor, then layer.**
+Every outfit starts with ONE anchor piece — the item that carries the look's identity. This is usually the bottom (wool trousers, denim, a well-cut chino) or the statement piece (a knit, a jacket, a shirt with character). Everything else is chosen to serve the anchor. Never build from nothing.
 
-Step 1 — Read the brief.
-- Occasion + temperature + mood are the frame. "Office" at 14°C with "sharp" mood = considered tailoring; "casual" at 22°C with "easy" = soft cotton, low formality, room to breathe.
+**2. Color discipline.**
+- Use the 60-30-10 rule: 60% dominant neutral, 30% secondary tone, 10% accent.
+- Maximum ONE saturated color per outfit. The rest must be neutrals (black, white, off-white, grey, beige, navy, brown, olive) OR analogous hues within 30° of the saturated piece.
+- Avoid mixing warm neutrals (beige, camel, brown, cream) with cool neutrals (cool grey, pure white, icy blue) unless there's a deliberate bridge piece.
+- Avoid black head-to-toe unless the occasion calls for it (evening, formal). In casual and office, black should be anchored by at least one lighter neutral.
 
-Step 2 — Anchor each look with one decisive piece.
-- Every outfit needs a hero: the trouser, the knit, the coat, the shoe — the piece the rest of the outfit serves. Build outward from there.
-- Three looks should have three different anchors. Do not repeat the same hero twice.
+**3. Silhouette and proportion.**
+- Balance fitted with relaxed. Never all-fitted (looks costumey) or all-relaxed (looks sloppy).
+- If the top is oversized, the bottom should be cleaner-cut, and vice versa.
+- Length proportions: a shorter jacket pairs with full-length trousers; a longer coat balances a crop or tucked top.
+- Vertical rhythm: break up the body with a belt, a tucked hem, or a color transition at the waist when appropriate.
 
-Step 3 — Silhouette.
-- Decide the proportion before colors: relaxed top + slim bottom, or fitted top + wide bottom, or column (one tone, similar volume top to bottom). Avoid loose+loose (sloppy) and tight+tight (dated) unless mood explicitly calls for it.
+**4. Texture and material.**
+- Contrast textures within a tight palette (smooth cotton shirt + textured wool trouser reads richer than two smooth pieces).
+- Match season: heavy wool doesn't belong in 25°C weather; linen doesn't belong in 5°C.
+- Avoid mixing more than one "shiny" material (leather, silk, patent). Two shinies fight each other.
+- Denim is casual unless it's indigo rigid raw denim, which can be dressed up slightly.
 
-Step 4 — Color story.
-- Pick ONE of three strategies per look:
-  (a) Tonal — neutrals within one family (cream/oat/camel, or charcoal/graphite/black). Calm, confident.
-  (b) Two-tone contrast — one neutral base + one accent (navy + cream, charcoal + olive, black + camel). Most versatile.
-  (c) Single statement — one saturated piece, the rest deep neutrals. Use sparingly.
-- Never more than one saturated/loud color per look. Never three competing colors.
+**5. Formality coherence.**
+- All items must sit within a 3-point formality variance on the 1-10 scale.
+- A 9-formality blazer cannot be rescued by a 3-formality sneaker. The outfit will look confused.
+- For hybrid looks (smart casual), aim for a 5-7 formality band.
 
-Step 5 — Texture & material.
-- Mix one structured (wool, denim, leather) with one soft (knit, cotton, linen) where possible. All-soft reads pajama; all-structured reads costume.
+Your three-look output follows a STRATEGIC VARIETY RULE: do not produce three visually similar outfits. Each Look must pursue a different strategy:
+- **Look 01 — The Expected:** the most occasion-appropriate, most universally correct choice. Safe, but deliberate.
+- **Look 02 — The Textured:** built around a material or texture contrast the user might not have tried. Slightly more considered.
+- **Look 03 — The Move:** one unexpected choice (an unusual color pairing, a less obvious formality read, an accessory-led composition). Still correct, but with more of the user's personality showing.
 
-Step 6 — Occasion register.
-- Office: leans tailored, closed shoes, no exposed athletic logos, no graphic tees.
-- Casual: relaxed but considered — chore jacket over tee, denim with a knit, sneakers acceptable.
-- Evening: deeper tones, refined materials (wool, silk, leather), reduce visual noise.
-- Athletic: technical fabrics, performance shoes, no tailoring.
-- Formal: suit logic, leather shoes, restrained palette.
-- Travel: layerable, non-wrinkling materials, comfortable shoes.
+Voice rules for rationale:
+- Under 40 words. Editorial, observational.
+- Never use: "perfect", "stylish", "chic", "elevated", "timeless", "effortless", "classic" (as adjective — "a classic shirt" is fine, "a classic look" is not), "versatile", "sleek", "trendy", "on-trend", "fashion-forward".
+- Never exclaim. Never emoji. Never second-person address.
+- Good: "The wool trousers anchor the look — appropriate for client days, relaxed enough to walk home in."
+- Good: "Two textures, one palette. The knit does the talking."
+- Bad: "This perfect office outfit is elevated and effortless!"
 
-Step 7 — Mood lever.
-- "sharp" → tighter silhouette, structured shoulders, polished shoes, darker palette.
-- "easy" → softer fabrics, relaxed fit, lighter neutrals, sneakers or loafers.
-- "playful" → permission for one unexpected pairing — mixing registers, an unexpected color accent, texture contrast — but still composed.
+Name rules (2–4 words, evocative not descriptive):
+- Good: "The Considered Monday", "Soft Power", "Long Way Home", "Quiet Authority", "Late September", "The Understudy".
+- Bad: "Office Outfit", "Blue Shirt Combo", "Casual Friday Look".
 
-Step 8 — Distinctness.
-- The three looks must read as three different ideas, not three variations of the same outfit. Vary anchor, silhouette, OR color story between them. Each look should differ from the others by at least 2 item_ids.
+Hard constraints (must not be violated):
+- Exactly 1 top + 1 bottom, OR 1 dress. Shoes are required.
+- Outerwear only if temp_c < 15.
+- Formality variance ≤ 3.
+- Only use item_ids from the provided wardrobe.
+- Each of the three Looks must differ from the other two by at least 2 item_ids.`;
 
-# Hard rules (these are checked programmatically, violations are dropped)
-- Each outfit: exactly 1 top + 1 bottom, OR 1 dress. Shoes required. Outerwear only if temp_c < 15.
-- Formality variance across all items in one outfit must be ≤ 3 on the 1-10 scale.
-- At most one "loud" piece per outfit; others neutral or analogous.
-- Only use item_ids from the provided wardrobe list. Never invent ids.
-- Prefer items with high worn_days_ago over recently-worn ones when quality is equal — give the wardrobe rotation.
+interface ReasoningBlock {
+  occasion_read?: string;
+  palette_strategy?: string;
+  anchor_choices?: string;
+}
 
-# Name voice (the look's title)
-- 2–4 words. Evocative, not descriptive. A mood, a scene, a posture.
-- Good: "The Considered Monday", "Soft Power", "Long Way Home", "Quiet Authority", "Off Hours".
-- Bad: "Office Outfit 1", "Blue Shirt Look", "Casual Friday Vibe".
-
-# Rationale voice (why this works)
-- Under 40 words. Editorial, observational, restrained. Speak about the outfit, not to the user.
-- Reference one specific styling decision: the anchor piece, the proportion, the color move, or the texture mix. Show your reasoning subtly.
-- Never use: "perfect", "stylish", "chic", "elevated", "timeless", "effortless", "vibe", "look great", "you'll".
-- Never exclaim. Never use emoji. Never address the user directly.
-- Good: "The wool trousers anchor the look — appropriate for client days, never stiff. The knit softens what could read as a uniform."
-- Good: "A column of charcoal, broken only by the cream of the shirt collar. One considered move."
-- Bad: "You'll look perfect in this stylish outfit!"`;
+type LookStrategy = "expected" | "textured" | "move";
 
 interface LookProposal {
+  strategy?: LookStrategy;
   item_ids: string[];
   name: string;
   rationale: string;
+}
+
+interface AIPayload {
+  reasoning?: ReasoningBlock;
+  looks?: LookProposal[];
 }
 
 interface CandidateRow {
@@ -135,6 +136,114 @@ interface CandidateRow {
   tags: string[] | null;
   wear_count: number | null;
   last_worn: string | null;
+}
+
+function buildUserPrompt(args: {
+  occasion: Occasion;
+  temp_c: number;
+  mood?: Mood;
+  archetype: string;
+  excludeBatchId?: string;
+  candidateList: unknown[];
+  feedback?: string;
+}) {
+  const excludeClause = args.excludeBatchId
+    ? `\n- The user already saw a prior set; compose genuinely different looks this time.`
+    : "";
+  const feedbackClause = args.feedback
+    ? `\n\nYour previous attempt had problems: ${args.feedback}. Fix them and try again.`
+    : "";
+
+  return `Compose THREE looks for:
+- Occasion: ${args.occasion}
+- Temperature: ${args.temp_c}°C
+- Mood preference: ${args.mood ?? "not specified"}
+- User's style archetype: ${args.archetype}${excludeClause}
+
+Eligible wardrobe:
+${JSON.stringify(args.candidateList, null, 2)}
+
+Think through the composition before outputting. Return strict JSON in this exact shape:
+
+{
+  "reasoning": {
+    "occasion_read": "one sentence on what this occasion + temp actually demands",
+    "palette_strategy": "one sentence on the color direction across all three looks",
+    "anchor_choices": "one sentence per look naming which item you chose as its anchor and why"
+  },
+  "looks": [
+    {
+      "strategy": "expected" | "textured" | "move",
+      "item_ids": ["<uuid>", ...],
+      "name": "<2-4 words, evocative>",
+      "rationale": "<under 40 words, editorial voice, references a specific item or contrast>"
+    },
+    { "strategy": "textured", "item_ids": [...], "name": "...", "rationale": "..." },
+    { "strategy": "move", "item_ids": [...], "name": "...", "rationale": "..." }
+  ]
+}
+
+No markdown. No prose outside the JSON. The "reasoning" field is for your internal thinking and will not be shown to the user, but you must produce it — it forces you to plan before picking.${feedbackClause}`;
+}
+
+function validateLook(
+  look: LookProposal,
+  candidates: CandidateRow[],
+  temp_c: number,
+): { ok: true } | { ok: false; reason: string } {
+  if (!Array.isArray(look.item_ids) || look.item_ids.length === 0) {
+    return { ok: false, reason: "no_items" };
+  }
+  const items = look.item_ids.map((id) => candidates.find((c) => c.id === id));
+  if (items.some((i) => !i)) return { ok: false, reason: "hallucinated_id" };
+  const resolved = items as CandidateRow[];
+
+  const hasShoes = resolved.some((i) => i.category === "shoes");
+  if (!hasShoes) return { ok: false, reason: "no_shoes" };
+
+  const topCount = resolved.filter((i) => i.category === "top").length;
+  const bottomCount = resolved.filter((i) => i.category === "bottom").length;
+  const dressCount = resolved.filter((i) => i.category === "dress").length;
+
+  if (dressCount > 1) return { ok: false, reason: "multiple_dresses" };
+  if (dressCount === 0) {
+    if (topCount !== 1 || bottomCount !== 1) {
+      return { ok: false, reason: "wrong_top_bottom_count" };
+    }
+  } else {
+    // Dress present: no separate top or bottom allowed
+    if (topCount > 0 || bottomCount > 0) {
+      return { ok: false, reason: "dress_with_extras" };
+    }
+  }
+
+  const hasOuterwear = resolved.some((i) => i.category === "outerwear");
+  if (hasOuterwear && temp_c >= 15) {
+    return { ok: false, reason: "outerwear_too_warm" };
+  }
+
+  const scores = resolved
+    .map((i) => i.formality_score)
+    .filter((s): s is number => typeof s === "number");
+  if (scores.length >= 2) {
+    const variance = Math.max(...scores) - Math.min(...scores);
+    if (variance > 3) return { ok: false, reason: "formality_variance" };
+  }
+
+  return { ok: true };
+}
+
+function looksAreDistinct(looks: LookProposal[]): boolean {
+  for (let i = 0; i < looks.length; i++) {
+    for (let j = i + 1; j < looks.length; j++) {
+      const a = looks[i].item_ids;
+      const b = looks[j].item_ids;
+      const overlap = a.filter((id) => b.includes(id)).length;
+      const maxLen = Math.max(a.length, b.length);
+      if (maxLen - overlap < 2) return false;
+    }
+  }
+  return true;
 }
 
 export const suggestOutfit = createServerFn({ method: "POST" })
@@ -154,7 +263,7 @@ export const suggestOutfit = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
 
-    // 1. Rate limit FIRST so we never spend AI budget on rejected requests.
+    // 1. Rate limit FIRST.
     try {
       await checkAndIncrement(supabase, userId, "suggestOutfit", 30);
     } catch (err) {
@@ -184,28 +293,28 @@ export const suggestOutfit = createServerFn({ method: "POST" })
       };
     }
 
-    // 3. Profile (for avoid_colors)
+    // 3. Profile
     const { data: profile } = await supabase
       .from("profiles")
       .select("avoid_colors, style_archetype")
       .eq("id", userId)
       .maybeSingle();
+    const archetype = profile?.style_archetype ?? "classic";
 
     // 4. Hard filters
     const [floor, ceiling] = FORMALITY_RANGE[data.occasion];
     const seasons = seasonsForTemp(data.temp_c);
-    const avoid = new Set((profile?.avoid_colors ?? []).map((c) => c.toLowerCase()));
+    const avoid = new Set(
+      (profile?.avoid_colors ?? []).map((c) => c.toLowerCase()),
+    );
 
     const candidates: CandidateRow[] = (items as CandidateRow[]).filter((it) => {
-      // Formality: if no score, allow (vision may not have set it yet)
       if (it.formality_score != null) {
         if (it.formality_score < floor || it.formality_score > ceiling) return false;
       }
-      // Season: if tagged, require overlap; if untagged, allow
       if (it.season && it.season.length > 0) {
         if (!it.season.some((s) => seasons.includes(s))) return false;
       }
-      // Avoid colors
       if (it.color_primary && avoid.has(it.color_primary.toLowerCase())) {
         return false;
       }
@@ -235,7 +344,7 @@ export const suggestOutfit = createServerFn({ method: "POST" })
       };
     }
 
-    // 5. Build compact candidate list for the LLM
+    // 5. Build candidate list for the LLM
     const now = Date.now();
     const candidateList = candidates.map((c) => ({
       id: c.id,
@@ -251,39 +360,36 @@ export const suggestOutfit = createServerFn({ method: "POST" })
       tags: c.tags,
     }));
 
-    const userPrompt = `Compose THREE distinct outfits for occasion=${data.occasion} at temp_c=${data.temp_c}°C.
-Mood preference: ${data.mood ?? "not specified"}.
-Each outfit must differ from the others by at least 2 item_ids.
-${data.exclude_batch_id ? "The user already saw a prior set; compose genuinely different looks this time." : ""}
-
-Eligible wardrobe:
-${JSON.stringify(candidateList, null, 2)}
-
-Return STRICT JSON, no markdown, no prose:
-{
-  "looks": [
-    { "item_ids": ["<uuid>", ...], "name": "<2-4 words>", "rationale": "<under 40 words>" },
-    { "item_ids": [...], "name": "...", "rationale": "..." },
-    { "item_ids": [...], "name": "...", "rationale": "..." }
-  ]
-}`;
-
-    // 6. Call AI gateway with one retry on parse / hallucinated ids
     const candidateIds = new Set(candidates.map((c) => c.id));
-    let proposals: LookProposal[] | null = null;
-    let lastError: string | null = null;
+
+    // 6. Call AI with one retry that includes feedback
+    let payload: AIPayload | null = null;
+    let validLooks: LookProposal[] = [];
+    let lastReasons: string[] = [];
 
     for (let attempt = 0; attempt < 2; attempt++) {
+      const userPrompt = buildUserPrompt({
+        occasion: data.occasion,
+        temp_c: data.temp_c,
+        mood: data.mood,
+        archetype,
+        excludeBatchId: data.exclude_batch_id,
+        candidateList,
+        feedback: attempt === 1 ? lastReasons.join(", ") : undefined,
+      });
+
       let raw: string;
       try {
         raw = await chatCompletion({
-          model: "google/gemini-2.5-flash",
+          model: "openai/gpt-5",
           messages: [
             { role: "system", content: SYSTEM_PROMPT },
             { role: "user", content: userPrompt },
           ],
+          temperature: 0.75,
+          max_tokens: 2000,
           json: true,
-          timeoutMs: 45_000,
+          timeoutMs: 60_000,
         });
       } catch (err) {
         if (err instanceof AIGatewayError) {
@@ -305,18 +411,18 @@ Return STRICT JSON, no markdown, no prose:
                 message: "AI took too long. Try again.",
               };
             }
-            lastError = err.message;
+            lastReasons = ["timeout"];
             continue;
           }
         }
         if (attempt === 1) throw err;
-        lastError = (err as Error).message;
+        lastReasons = [(err as Error).message];
         continue;
       }
 
-      let parsed: { looks?: LookProposal[] };
+      let parsed: AIPayload;
       try {
-        parsed = JSON.parse(raw);
+        parsed = JSON.parse(raw) as AIPayload;
       } catch {
         if (attempt === 1) {
           return {
@@ -324,71 +430,83 @@ Return STRICT JSON, no markdown, no prose:
             message: "Couldn't read the AI response. Try again.",
           };
         }
-        lastError = "parse_failed";
+        lastReasons = ["json_parse_failed"];
         continue;
       }
 
+      payload = parsed;
       const looks = Array.isArray(parsed.looks) ? parsed.looks : [];
-      const allValid = looks.every(
+
+      // Filter to only well-formed looks before validation
+      const wellFormed = looks.filter(
         (l) =>
+          l &&
           Array.isArray(l.item_ids) &&
-          l.item_ids.every((id) => candidateIds.has(id)),
+          l.item_ids.every((id) => typeof id === "string" && candidateIds.has(id)) &&
+          typeof l.name === "string" &&
+          typeof l.rationale === "string",
       );
-      if (allValid) {
-        proposals = looks;
+
+      const reasons: string[] = [];
+      const passed: LookProposal[] = [];
+      for (const look of wellFormed) {
+        const r = validateLook(look, candidates, data.temp_c);
+        if (r.ok) passed.push(look);
+        else reasons.push(`look(${look.strategy ?? "?"}): ${r.reason}`);
+      }
+
+      const distinct = passed.length >= 2 ? looksAreDistinct(passed) : true;
+      if (!distinct) reasons.push("looks_not_distinct");
+
+      const allLooksValid =
+        passed.length === looks.length && distinct && passed.length >= 3;
+
+      if (allLooksValid) {
+        validLooks = passed;
         break;
       }
-      // First attempt failed validation — retry with stricter instruction
-      if (attempt === 0) {
-        lastError = "hallucinated_ids";
-        continue;
+
+      // Second pass — accept what we have
+      if (attempt === 1) {
+        // If distinctness failed, drop the offending overlapping look
+        if (!distinct && passed.length > 1) {
+          const kept: LookProposal[] = [];
+          for (const candidate of passed) {
+            if (
+              kept.every((k) => {
+                const overlap = candidate.item_ids.filter((id) =>
+                  k.item_ids.includes(id),
+                ).length;
+                const maxLen = Math.max(
+                  candidate.item_ids.length,
+                  k.item_ids.length,
+                );
+                return maxLen - overlap >= 2;
+              })
+            ) {
+              kept.push(candidate);
+            }
+          }
+          validLooks = kept;
+        } else {
+          validLooks = passed;
+        }
+        break;
       }
-      // Second attempt: drop only the bad looks, keep the rest
-      proposals = looks.filter((l) =>
-        l.item_ids.every((id) => candidateIds.has(id)),
-      );
+
+      // First pass failed — set up retry feedback
+      lastReasons = reasons.length ? reasons : ["incomplete_output"];
     }
-
-    if (!proposals || proposals.length === 0) {
-      return {
-        error: "composition_failed" as const,
-        message: "Couldn't compose valid looks. Try again.",
-        debug: lastError,
-      };
-    }
-
-    // 7. Hard-rule validation: drop looks that don't pass
-    const validLooks = proposals.filter((look) => {
-      const lookItems = look.item_ids
-        .map((id) => candidates.find((c) => c.id === id))
-        .filter((x): x is CandidateRow => Boolean(x));
-      if (lookItems.length !== look.item_ids.length) return false;
-
-      const hasShoes = lookItems.some((i) => i.category === "shoes");
-      const hasTopBottomOrDress =
-        lookItems.some((i) => i.category === "dress") ||
-        (lookItems.some((i) => i.category === "top") &&
-          lookItems.some((i) => i.category === "bottom"));
-      if (!hasShoes || !hasTopBottomOrDress) return false;
-
-      const scores = lookItems
-        .map((i) => i.formality_score)
-        .filter((s): s is number => typeof s === "number");
-      if (scores.length >= 2) {
-        const variance = Math.max(...scores) - Math.min(...scores);
-        if (variance > 3) return false;
-      }
-      return true;
-    });
 
     if (validLooks.length === 0) {
       return {
         error: "composition_failed" as const,
         message: "Couldn't compose valid looks. Try again.",
+        debug: lastReasons.join(", "),
       };
     }
 
-    // 8. Insert into outfits with shared batch_id
+    // 7. Insert looks + log reasoning
     const batch_id = crypto.randomUUID();
     const rows = validLooks.map((look, idx) => ({
       user_id: userId,
@@ -396,7 +514,12 @@ Return STRICT JSON, no markdown, no prose:
       name: look.name?.slice(0, 60) ?? null,
       rationale: look.rationale?.slice(0, 400) ?? null,
       occasion: data.occasion,
-      context: { temp_c: data.temp_c, mood: data.mood ?? null },
+      context: {
+        temp_c: data.temp_c,
+        mood: data.mood ?? null,
+        strategy: look.strategy ?? null,
+        archetype,
+      },
       batch_id,
       look_sequence: idx + 1,
     }));
@@ -406,6 +529,21 @@ Return STRICT JSON, no markdown, no prose:
       .insert(rows)
       .select();
     if (insertErr) throw insertErr;
+
+    // Diagnostic log — best-effort, never blocks the response
+    if (payload?.reasoning) {
+      void supabase.from("styling_logs" as any).insert({
+        user_id: userId,
+        batch_id,
+        occasion: data.occasion,
+        temp_c: Math.round(data.temp_c),
+        mood: data.mood ?? null,
+        archetype,
+        reasoning: payload.reasoning,
+        wardrobe_size: items.length,
+        candidate_size: candidates.length,
+      });
+    }
 
     return {
       ok: true as const,
