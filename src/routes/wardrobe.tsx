@@ -546,14 +546,23 @@ function EmptyState({ onAdd, hasItems }: { onAdd: () => void; hasItems: boolean 
   );
 }
 
-type UploadStage = "idle" | "preparing" | "uploading-thumb" | "uploading-raw" | "saving" | "enhancing" | "done";
+type UploadStage =
+  | "idle"
+  | "preparing"
+  | "removing-bg"
+  | "uploading-thumb"
+  | "uploading-raw"
+  | "uploading-enhanced"
+  | "saving"
+  | "done";
 
 const STAGES: { id: UploadStage; label: string }[] = [
   { id: "preparing", label: "Preparing photo" },
+  { id: "removing-bg", label: "Removing background" },
   { id: "uploading-thumb", label: "Uploading thumbnail" },
   { id: "uploading-raw", label: "Uploading raw image" },
+  { id: "uploading-enhanced", label: "Uploading cutout" },
   { id: "saving", label: "Saving to wardrobe" },
-  { id: "enhancing", label: "Waiting for enhanced image" },
 ];
 
 function UploadSheet({
