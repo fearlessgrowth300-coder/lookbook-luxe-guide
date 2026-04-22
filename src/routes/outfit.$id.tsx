@@ -363,9 +363,11 @@ function ItemFrame({
   onHover: (h: boolean) => void;
 }) {
   const area = AREA_MAP[item.category || "top"] || "top";
-  const url = item.thumbnail_path
-    ? supabase.storage.from("wardrobe-thumbs").getPublicUrl(item.thumbnail_path).data.publicUrl
-    : null;
+  const url = item.enhanced_path
+    ? supabase.storage.from("wardrobe-enhanced").getPublicUrl(item.enhanced_path).data.publicUrl
+    : item.thumbnail_path
+      ? supabase.storage.from("wardrobe-thumbs").getPublicUrl(item.thumbnail_path).data.publicUrl
+      : null;
 
   return (
     <motion.div
