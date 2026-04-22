@@ -15,7 +15,6 @@ import {
   mockSuggestOutfits,
   type Occasion,
 } from "@/server/mock-ai";
-import { testRateLimit } from "@/server/functions/testRateLimit";
 
 export const Route = createFileRoute("/today")({
   component: () => (
@@ -409,9 +408,6 @@ function TodayPage() {
           </div>
         </section>
       )}
-
-      {/* TEMP: Step 7 rate-limit verification — remove after confirming */}
-      <RateLimitTester />
 
       {/* More occasions modal */}
       {moreOpen && (
