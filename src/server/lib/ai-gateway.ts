@@ -107,9 +107,37 @@ export async function chatCompletion(
   }
 
   const json = (await resp.json()) as {
-    choices?: Array<{ message?: { content?: string } }>;
+    choices?: Array<{
+      message?: {
+        content?:
+          | string
+          | Array<
+              | string
+              | {
+                  type?: string;
+                  text?: string;
+                }
+            >;
+      };
+    }>;
   };
   const content = json.choices?.[0]?.message?.content;
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (Array.isArray(content)) {
+    const flattened = content
+      .map((part) => {
+        if (typeof part === "string") return part;
+        return typeof part?.text === "string" ? part.text : "";
+      })
+      .join("")
+      .trim();
+
+    if (flattened) return flattened;
+  }
+
   if (typeof content !== "string") {
     throw new AIGatewayError(
       "AI gateway returned no content",
