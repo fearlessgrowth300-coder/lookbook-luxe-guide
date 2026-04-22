@@ -28,11 +28,15 @@ export const Route = createFileRoute("/today/looks")({
   ),
   validateSearch: (search: Record<string, unknown>) => {
     const occ = search.occasion;
-    const valid =
+    const validOcc =
       typeof occ === "string" && (OCCASIONS as string[]).includes(occ)
         ? (occ as Occasion)
-        : ("office" as Occasion);
-    return { occasion: valid };
+        : undefined;
+    const batch = typeof search.batch === "string" ? search.batch : undefined;
+    return {
+      occasion: validOcc,
+      batch,
+    } as { occasion: Occasion | undefined; batch: string | undefined };
   },
   head: () => ({ meta: [{ title: "Three Looks — Atelier" }] }),
 });
