@@ -1282,9 +1282,9 @@ function EditSheet({
   const thumbUrl = item.thumbnail_path
     ? supabase.storage.from("wardrobe-thumbs").getPublicUrl(item.thumbnail_path).data.publicUrl
     : null;
-  // wardrobe-thumbs is the public bucket; wardrobe-enhanced is private and
-  // its public URL returns 403. Prefer the public thumb here.
-  const previewUrl = thumbUrl ?? enhancedUrl;
+  // Prefer the bg-removed enhanced PNG; fall back to the thumbnail if the
+  // item was uploaded before bg-removal shipped.
+  const previewUrl = enhancedUrl ?? thumbUrl;
 
   const finish = (advance: boolean) => {
     qc.invalidateQueries({ queryKey: ["wardrobe", user?.id] });
