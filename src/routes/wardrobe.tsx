@@ -744,13 +744,82 @@ function UploadSheet({
       }
       pushLog("uploaded raw");
 
+      // ── Background removal (client-side, WASM) ─────────────────────────
+      // We attempt to strip the background and upload a transparent PNG to
+      // wardrobe-enhanced. If anything fails (e.g. the model couldn't load),
+      // we still continue with raw + thumb so the user's piece lands in the
+      // gallery — the gallery already falls back to the thumb when the
+      // enhanced image is missing.
+      const enhancedPath = `${user.id}/${itemId}.png`;
+      let enhancedPathToSave: string | null = null;
+      try {
+        setStage("removing-bg");
+        onPendingChange({ id: itemId, previewUrl, stage: "enhancing" });
+        lastUploadStep = "REMOVE BG";
+        pushLog("removing background");
+        const enhancedBlob = await removeBg(rawBlob, (p) => {
+          if (p.progress > 0 && p.progress < 1 && Math.random() < 0.05) {
+            pushLog("bg progress", `${p.step} ${(p.progress * 100).toFixed(0)}%`);
+          }
+        });
+        pushLog(
+          "bg removed",
+          `${(enhancedBlob.size / 1024).toFixed(0)}KB transparent PNG`,
+        );
+
+        setStage("uploading-enhanced");
+        lastUploadStep = "UPLOAD ENHANCED";
+        const enhancedUp = await supabase.storage
+          .from("wardrobe-enhanced")
+          .upload(enhancedPath, enhancedBlob, {
+            contentType: "image/png",
+            upsert: true,
+          });
+        if (enhancedUp.error) {
+          throw new UploadError(
+            enhancedUp.error.message,
+            `UPLOAD ${enhancedUp.error.message}`,
+          );
+        }
+        pushLog("uploaded enhanced");
+        enhancedPathToSave = enhancedPath;
+      } catch (bgErr) {
+        // Non-fatal — log and keep going with thumb-only display.
+        console.error("[bg-removal failed]", bgErr);
+        pushLog(
+          "bg-removal skipped",
+          bgErr instanceof Error ? bgErr.message : "unknown",
+        );
+      }
+
+      // Mark first-run notice as seen — the user has now experienced one
+      // download cycle, no need to warn again.
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(BG_REMOVAL_FIRST_RUN_KEY, "1");
+      }
+
       setStage("saving");
       lastUploadStep = "DB INSERT";
+
+      // Run the supplementary mock analysis in parallel with insert. The
+      // mock fills color/material/season/tags so the gallery has metadata
+      // to show — we INTENTIONALLY skip writing category/subcategory/
+      // formality_score from the mock since those are owned by the user.
+      const analysisPromise = mockAnalyzeGarment({
+        user_id: user.id,
+        item_id: itemId,
+        enhanced_path: enhancedPath,
+      }).catch((err) => {
+        console.error("[analyze failed]", err);
+        return null;
+      });
+
       const { error: insertErr } = await supabase.from("wardrobe_items").insert({
         id: itemId,
         user_id: user.id,
         raw_path: rawPath,
         thumbnail_path: thumbPath,
+        enhanced_path: enhancedPathToSave,
         placeholder,
         category: userCategory,
         subcategory: userSubcategory || null,
@@ -759,43 +828,27 @@ function UploadSheet({
       if (insertErr) throw new DbInsertError(insertErr.message, "DB INSERT FAILED");
       pushLog("db insert ok");
 
-      insertedItemIdRef.current = itemId;
       qc.invalidateQueries({ queryKey: ["wardrobe", user.id] });
       toast("Added to wardrobe");
 
-      setStage("enhancing");
-      onPendingChange({ id: itemId, previewUrl, stage: "enhancing" });
+      // Patch in the analysis fields once they arrive — fire-and-forget.
+      void analysisPromise.then((analysis) => {
+        if (!analysis) return;
+        return supabase
+          .from("wardrobe_items")
+          .update({
+            color_primary: analysis.color_primary,
+            color_secondary: analysis.color_secondary,
+            material: analysis.material,
+            season: analysis.season,
+            tags: analysis.tags,
+          })
+          .eq("id", itemId);
+      });
 
-      // Fire-and-forget mock enhance + analyze. We INTENTIONALLY skip writing
-      // category / subcategory / formality_score from the mock — those are owned
-      // by the user. The mock still fills in color/material/season/tags so the
-      // gallery has something to show.
-      (async () => {
-        try {
-          const [bg, analysis] = await Promise.all([
-            mockRemoveBackground({ user_id: user.id, item_id: itemId, raw_path: rawPath }),
-            mockAnalyzeGarment({
-              user_id: user.id,
-              item_id: itemId,
-              enhanced_path: `${user.id}/${itemId}.png`,
-            }),
-          ]);
-          await supabase
-            .from("wardrobe_items")
-            .update({
-              enhanced_path: bg.enhanced_path,
-              color_primary: analysis.color_primary,
-              color_secondary: analysis.color_secondary,
-              material: analysis.material,
-              season: analysis.season,
-              tags: analysis.tags,
-            })
-            .eq("id", itemId);
-        } catch (err) {
-          console.error("Enhance failed", err);
-        }
-      })();
-
+      setStage("done");
+      onPendingChange(null);
+      URL.revokeObjectURL(previewUrl);
       resetPicked();
     } catch (e) {
       const errorName = e instanceof Error ? e.name : "UnknownError";
@@ -835,7 +888,6 @@ function UploadSheet({
       URL.revokeObjectURL(previewUrl);
       onPendingChange(null);
       setStage("idle");
-      insertedItemIdRef.current = null;
     } finally {
       resetInputs();
     }
