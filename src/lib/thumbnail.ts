@@ -33,6 +33,39 @@ export async function generateThumbnail(file: File): Promise<Blob> {
   });
 }
 
+/**
+ * Downscale a photo to a sensible max dimension for upload.
+ * Keeps aspect ratio. JPEG 0.9. Used for the "raw" upload so mobile
+ * phone photos (often 4–12 MB) become 200–600 KB and upload reliably.
+ */
+export async function downscaleForUpload(
+  file: File,
+  maxEdge = 1600,
+  quality = 0.9,
+): Promise<Blob> {
+  const bitmap = await createImageBitmap(file);
+  const { width, height } = bitmap;
+  const scale = Math.min(1, maxEdge / Math.max(width, height));
+  const w = Math.round(width * scale);
+  const h = Math.round(height * scale);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas 2D context unavailable");
+  ctx.drawImage(bitmap, 0, 0, w, h);
+  bitmap.close?.();
+
+  return await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => (blob ? resolve(blob) : reject(new Error("toBlob failed"))),
+      "image/jpeg",
+      quality,
+    );
+  });
+}
+
 /** Tiny base64 LQIP for blurhash-like placeholder. */
 export async function generatePlaceholder(file: File): Promise<string> {
   const SIZE = 16;
