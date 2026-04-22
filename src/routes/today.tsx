@@ -158,45 +158,51 @@ function TodayPage() {
     setGenerating(true);
     try {
       const wardrobe = wardrobeQuery.data ?? [];
-      if (wardrobe.length < 5) {
-        toast("Add at least 5 pieces to compose looks.");
+      if (wardrobe.length < 3) {
+        toast("Add at least 3 pieces to compose looks.");
         return;
       }
-      const candidates = wardrobe.map((i) => ({
-        id: i.id,
-        category: i.category,
-        subcategory: i.subcategory,
-        formality_score: i.formality_score,
-      }));
 
-      const suggestions = await mockSuggestOutfits({
-        user_id: user.id,
-        occasion: selected,
-        temp_c: 14,
-        candidates,
-        count: 3,
+      const result = await suggestOutfit({
+        data: {
+          occasion: selected,
+          temp_c: 14,
+          mood,
+        },
       });
 
-      if (!suggestions.length) {
-        toast(`Add a few more pieces to compose ${selected} looks.`);
+      if ("error" in result) {
+        switch (result.error) {
+          case "rate_limited":
+            toast("Daily limit reached. Resets at midnight.");
+            break;
+          case "insufficient_wardrobe":
+            toast("Add more items to start composing looks.");
+            break;
+          case "insufficient_for_occasion": {
+            const what = result.missing[0] ?? "items";
+            toast(
+              `Add a pair of ${selected}-appropriate ${what} to compose ${selected} looks.`,
+            );
+            break;
+          }
+          case "composition_failed":
+            toast(
+              "Couldn't compose valid looks. Try adjusting mood or adding items.",
+            );
+            break;
+          case "ai_unavailable":
+            toast(result.message ?? "AI is busy. Try again in a moment.");
+            break;
+          case "llm_parse_failed":
+          default:
+            toast("Something went wrong. Try again.");
+        }
+        setShake((s) => s + 1);
         return;
       }
 
-      const batchId = crypto.randomUUID();
-      const rows = suggestions.map((s, i) => ({
-        user_id: user.id,
-        item_ids: s.item_ids,
-        occasion: selected,
-        rationale: s.rationale,
-        name: s.name,
-        batch_id: batchId,
-        look_sequence: i + 1,
-        context: { temp_c: 14, mood },
-      }));
-      const { error } = await supabase.from("outfits").insert(rows);
-      if (error) throw error;
-
-      navigate({ to: "/today/looks", search: { batch: batchId } });
+      navigate({ to: "/today/looks", search: { batch: result.batch_id } });
     } catch (e) {
       console.error(e);
       setShake((s) => s + 1);
