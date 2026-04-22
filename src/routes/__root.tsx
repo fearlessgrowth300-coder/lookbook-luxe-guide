@@ -8,7 +8,12 @@ import {
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "sonner";
 import { AuthProvider } from "@/lib/auth";
+import { installServerFnAuth } from "@/lib/server-fn-auth";
 import appCss from "../styles.css?url";
+
+// Install the fetch interceptor that attaches the Supabase access token to
+// every server-function request. Idempotent; runs once on the client.
+installServerFnAuth();
 
 interface RouterContext {
   queryClient: QueryClient;
