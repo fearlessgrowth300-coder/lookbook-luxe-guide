@@ -20,6 +20,7 @@ async function normalizeInputFile(file: File): Promise<File | Blob> {
   const maybeHeic =
     file.type === "image/heic" ||
     file.type === "image/heif" ||
+    file.type === "" ||
     lowerName.endsWith(".heic") ||
     lowerName.endsWith(".heif");
 
@@ -45,6 +46,18 @@ async function normalizeInputFile(file: File): Promise<File | Blob> {
       "Your gallery photo format is not supported by this browser yet. Please pick a JPG/PNG photo or take a new photo now.",
     );
   }
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") resolve(reader.result);
+      else reject(new Error("Image decode failed"));
+    };
+    reader.onerror = () => reject(new Error("Image decode failed"));
+    reader.readAsDataURL(blob);
+  });
 }
 
 function canvasToBlob(
@@ -112,7 +125,7 @@ async function decodeImageSource(file: File): Promise<DecodedImage> {
   }
 
   try {
-    const image = await loadHtmlImage(await fileToDataUrl(normalizedFile instanceof File ? normalizedFile : new File([normalizedFile], "upload.jpg", { type: normalizedFile.type || "image/jpeg" })));
+    const image = await loadHtmlImage(await blobToDataUrl(normalizedFile));
     const width = image.naturalWidth || image.width;
     const height = image.naturalHeight || image.height;
 
