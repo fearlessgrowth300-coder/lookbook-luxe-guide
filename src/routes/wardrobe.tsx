@@ -10,7 +10,14 @@ import { useAuth } from "@/lib/auth";
 import { useUI } from "@/lib/store";
 import { supabase } from "@/integrations/supabase/client";
 import { ease, dur, tap } from "@/lib/motion";
-import { prepareUploadAssets } from "@/lib/thumbnail";
+import { prepareUploadAssets, type PreparationStage } from "@/lib/thumbnail";
+import {
+  DbInsertError,
+  DecodeError,
+  ThumbnailError,
+  UnsupportedFormatError,
+  UploadError,
+} from "@/lib/upload-errors";
 import {
   mockRemoveBackground,
   mockAnalyzeGarment,
@@ -47,11 +54,27 @@ interface WardrobeItem {
   formality_score: number | null;
 }
 
+type PendingUploadStage = "decoding" | "preparing" | "uploading" | "enhancing";
+
+interface PendingUploadItem {
+  id: string;
+  previewUrl: string;
+  stage: PendingUploadStage;
+}
+
+const PENDING_STAGE_LABELS: Record<PendingUploadStage, string> = {
+  decoding: "DECODING",
+  preparing: "PREPARING",
+  uploading: "UPLOADING",
+  enhancing: "ENHANCING",
+};
+
 function WardrobePage() {
   const { user } = useAuth();
   const qc = useQueryClient();
   const { uploadOpen, setUploadOpen, selectedItemIds, toggleSelect, clearSelection } = useUI();
   const [filter, setFilter] = useState<Category | "all">("all");
+  const [pendingUpload, setPendingUpload] = useState<PendingUploadItem | null>(null);
 
   const itemsQuery = useQuery({
     queryKey: ["wardrobe", user?.id],
@@ -98,6 +121,26 @@ function WardrobePage() {
     () => (filter === "all" ? items : items.filter((i) => i.category === filter)),
     [items, filter],
   );
+  const visibleItems = useMemo(
+    () => (pendingUpload ? filtered.filter((item) => item.id !== pendingUpload.id) : filtered),
+    [filtered, pendingUpload],
+  );
+
+  useEffect(() => {
+    if (!pendingUpload) return;
+    const matchingItem = items.find((item) => item.id === pendingUpload.id);
+    if (!matchingItem) return;
+
+    if (matchingItem.enhanced_path) {
+      URL.revokeObjectURL(pendingUpload.previewUrl);
+      setPendingUpload(null);
+      return;
+    }
+
+    if (pendingUpload.stage !== "enhancing") {
+      setPendingUpload({ ...pendingUpload, stage: "enhancing" });
+    }
+  }, [items, pendingUpload]);
 
   const categoryCount = new Set(items.map((i) => i.category).filter(Boolean)).size;
 
@@ -170,7 +213,7 @@ function WardrobePage() {
               <div key={i} className="aspect-[3/4] atelier-shimmer" />
             ))}
           </Grid>
-        ) : filtered.length === 0 ? (
+        ) : visibleItems.length === 0 && !pendingUpload ? (
           <EmptyState onAdd={() => setUploadOpen(true)} hasItems={items.length > 0} />
         ) : (
           <AnimatePresence mode="wait">
@@ -182,11 +225,18 @@ function WardrobePage() {
               transition={{ duration: 0.18, ease: ease.tactile }}
             >
               <Grid>
-                {filtered.map((item, i) => (
+                {pendingUpload && (
+                  <Tile
+                    key={`pending-${pendingUpload.id}`}
+                    index={0}
+                    pending={{ previewUrl: pendingUpload.previewUrl, label: PENDING_STAGE_LABELS[pendingUpload.stage] }}
+                  />
+                )}
+                {visibleItems.map((item, i) => (
                   <Tile
                     key={item.id}
                     item={item}
-                    index={i}
+                    index={pendingUpload ? i + 1 : i}
                     selected={selectedItemIds.has(item.id)}
                     onToggleSelect={() => toggleSelect(item.id)}
                   />
@@ -232,7 +282,14 @@ function WardrobePage() {
       </AnimatePresence>
 
       {/* Upload sheet */}
-      <AnimatePresence>{uploadOpen && <UploadSheet onClose={() => setUploadOpen(false)} />}</AnimatePresence>
+      <AnimatePresence>
+        {uploadOpen && (
+          <UploadSheet
+            onClose={() => setUploadOpen(false)}
+            onPendingChange={setPendingUpload}
+          />
+        )}
+      </AnimatePresence>
     </Shell>
   );
 }
@@ -255,26 +312,28 @@ function Tile({
   index,
   selected,
   onToggleSelect,
+  pending,
 }: {
-  item: WardrobeItem;
+  item?: WardrobeItem;
   index: number;
-  selected: boolean;
-  onToggleSelect: () => void;
+  selected?: boolean;
+  onToggleSelect?: () => void;
+  pending?: { previewUrl: string; label: string };
 }) {
   const stagger = Math.min(index, 17) * 0.035;
-  const thumbUrl = item.thumbnail_path
+  const thumbUrl = item?.thumbnail_path
     ? supabase.storage.from("wardrobe-thumbs").getPublicUrl(item.thumbnail_path).data.publicUrl
     : null;
-  const enhancedUrl = item.enhanced_path
+  const enhancedUrl = item?.enhanced_path
     ? supabase.storage.from("wardrobe-enhanced").getPublicUrl(item.enhanced_path).data.publicUrl
     : null;
-  const [imgUrl, setImgUrl] = useState<string | null>(enhancedUrl ?? thumbUrl);
+  const [imgUrl, setImgUrl] = useState<string | null>(pending?.previewUrl ?? enhancedUrl ?? thumbUrl);
 
   const longPressTimer = useRef<number | null>(null);
 
   useEffect(() => {
-    setImgUrl(enhancedUrl ?? thumbUrl);
-  }, [enhancedUrl, thumbUrl]);
+    setImgUrl(pending?.previewUrl ?? enhancedUrl ?? thumbUrl);
+  }, [enhancedUrl, pending?.previewUrl, thumbUrl]);
 
   return (
     <motion.div
@@ -287,7 +346,7 @@ function Tile({
         onToggleSelect();
       }}
       onPointerDown={() => {
-        longPressTimer.current = window.setTimeout(onToggleSelect, 500);
+        if (onToggleSelect) longPressTimer.current = window.setTimeout(onToggleSelect, 500);
       }}
       onPointerUp={() => {
         if (longPressTimer.current) clearTimeout(longPressTimer.current);
@@ -303,9 +362,9 @@ function Tile({
       }`}
       style={{ transitionDuration: "320ms", transitionTimingFunction: "cubic-bezier(0.16,1,0.3,1)" }}
     >
-      {!imgUrl ? (
+      {!imgUrl || pending ? (
         <div className="absolute inset-3 atelier-shimmer" />
-      ) : (
+      ) : item ? (
         <motion.img
           src={imgUrl}
           alt={item.subcategory || "Wardrobe item"}
@@ -323,6 +382,19 @@ function Tile({
           transition={{ duration: 0.42, ease: ease.luxury }}
           className="h-full w-full object-contain"
         />
+      ) : null}
+
+      {pending && imgUrl && (
+        <img src={imgUrl} alt="Uploading wardrobe item" className="h-full w-full object-contain opacity-40" />
+      )}
+
+      {pending && (
+        <div className="absolute inset-x-3 bottom-3 flex items-center justify-between border border-ink/20 bg-bone/90 px-3 py-2">
+          <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-graphite">
+            {pending.label}
+          </span>
+          <span className="h-2 w-2 rounded-full bg-graphite" />
+        </div>
       )}
 
       {/* Meta bar */}
@@ -332,9 +404,9 @@ function Tile({
       >
         <div className="flex items-center justify-between">
           <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink">
-            {item.subcategory || (imgUrl ? item.category || "—" : "Analyzing…")}
+              {item?.subcategory || (imgUrl ? item?.category || "—" : "Analyzing…")}
           </span>
-          {item.color_primary && (
+          {item?.color_primary && (
             <span
               className="h-2 w-2 rounded-full"
               style={{ backgroundColor: item.color_primary }}
