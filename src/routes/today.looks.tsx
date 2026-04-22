@@ -26,17 +26,16 @@ export const Route = createFileRoute("/today/looks")({
       <ThreeLooksPage />
     </ProtectedRoute>
   ),
-  validateSearch: (search: Record<string, unknown>) => {
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { occasion?: Occasion; batch?: string } => {
     const occ = search.occasion;
     const validOcc =
       typeof occ === "string" && (OCCASIONS as string[]).includes(occ)
         ? (occ as Occasion)
         : undefined;
     const batch = typeof search.batch === "string" ? search.batch : undefined;
-    return {
-      occasion: validOcc,
-      batch,
-    } as { occasion: Occasion | undefined; batch: string | undefined };
+    return { occasion: validOcc, batch };
   },
   head: () => ({ meta: [{ title: "Three Looks — Atelier" }] }),
 });
@@ -231,7 +230,7 @@ function ThreeLooksPage() {
         <section className="flex min-h-[calc(100vh-128px)] items-center justify-center px-6 md:px-12">
           <div className="max-w-[520px] text-center">
             <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-ink">
-              {occasion}
+              {effectiveOccasion}
             </p>
             <h1 className="mt-6 font-display text-[28px] font-light leading-[1.2] text-graphite">
               Your wardrobe is just getting started.
@@ -264,7 +263,7 @@ function ThreeLooksPage() {
           Today
         </Link>
         <p className="flex-1 text-center font-mono text-[11px] uppercase tracking-[0.2em] text-graphite">
-          THREE LOOKS · {occasion.toUpperCase()} · 14°C
+          THREE LOOKS · {effectiveOccasion.toUpperCase()} · 14°C
         </p>
         <motion.button
           {...tap}
