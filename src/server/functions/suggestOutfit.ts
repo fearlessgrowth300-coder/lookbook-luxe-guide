@@ -386,7 +386,6 @@ export const suggestOutfit = createServerFn({ method: "POST" })
             { role: "system", content: SYSTEM_PROMPT },
             { role: "user", content: userPrompt },
           ],
-          temperature: 0.75,
           max_tokens: 2000,
           json: true,
           timeoutMs: 60_000,
