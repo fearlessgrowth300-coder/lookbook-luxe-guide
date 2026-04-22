@@ -52,6 +52,14 @@ const FORMALITY_OPTIONS: { label: string; score: number }[] = [
   { label: "Formal", score: 9 },
 ];
 
+/** Snap any 1-10 AI score to the nearest Casual / Smart / Formal bucket. */
+function snapFormality(score: number | null | undefined): number {
+  if (typeof score !== "number" || !Number.isFinite(score)) return 6;
+  if (score <= 4) return 3;
+  if (score <= 7) return 6;
+  return 9;
+}
+
 // Subcategories that came from the mock AI archetypes.
 // If any item carries one of these, we surface the "Fix my wardrobe" banner.
 const MOCK_SUBCATEGORIES = new Set([
@@ -709,7 +717,7 @@ function UploadSheet({
         status: "ready",
         category: a.category,
         subcategory: a.subcategory,
-        formality: a.formality_score,
+        formality: snapFormality(a.formality_score),
         aiAnalysis: {
           color_primary: a.color_primary,
           color_secondary: a.color_secondary,
