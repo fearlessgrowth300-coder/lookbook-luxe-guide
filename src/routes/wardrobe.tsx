@@ -308,6 +308,10 @@ function WardrobePage() {
                     index={pendingUpload ? i + 1 : i}
                     selected={selectedItemIds.has(item.id)}
                     onToggleSelect={() => toggleSelect(item.id)}
+                    onTap={() => {
+                      if (selectedItemIds.size > 0) toggleSelect(item.id);
+                      else setEditItemId(item.id);
+                    }}
                   />
                 ))}
               </Grid>
@@ -356,6 +360,22 @@ function WardrobePage() {
           <UploadSheet
             onClose={() => setUploadOpen(false)}
             onPendingChange={setPendingUpload}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Edit sheet */}
+      <AnimatePresence>
+        {editItemId && (
+          <EditSheet
+            item={items.find((i) => i.id === editItemId) ?? null}
+            onClose={() => setEditItemId(null)}
+            onAdvance={() => {
+              const remaining = miscategorized.filter((m) => m.id !== editItemId);
+              if (remaining.length > 0) setEditItemId(remaining[0].id);
+              else setEditItemId(null);
+            }}
+            hasMore={miscategorized.filter((m) => m.id !== editItemId).length > 0}
           />
         )}
       </AnimatePresence>
