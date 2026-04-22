@@ -169,8 +169,16 @@ function TodayPage() {
     );
   };
 
+  function setSelected(occ: Occasion | null) {
+    navigate({
+      to: "/today",
+      search: { occasion: occ ?? undefined },
+      replace: true,
+    });
+  }
+
   function togglePill(id: Occasion) {
-    setSelected((cur) => (cur === id ? null : id));
+    setSelected(selected === id ? null : id);
   }
 
   async function handleGenerate() {
