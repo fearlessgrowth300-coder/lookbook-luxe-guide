@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Plus, X, Upload as UploadIcon, Camera, ImageIcon, Check } from "lucide-react";
+import { Plus, X, Upload as UploadIcon, Camera, ImageIcon, Check, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { Shell } from "@/components/Shell";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
@@ -42,6 +42,33 @@ const FILTERS: { id: Category | "all"; label: string }[] = [
   { id: "accessory", label: "Accessories" },
 ];
 
+const CATEGORY_OPTIONS: { id: Category; label: string }[] = [
+  { id: "top", label: "Top" },
+  { id: "bottom", label: "Bottom" },
+  { id: "outerwear", label: "Outerwear" },
+  { id: "dress", label: "Dress" },
+  { id: "shoes", label: "Shoes" },
+  { id: "accessory", label: "Accessory" },
+  { id: "bag", label: "Bag" },
+];
+
+const FORMALITY_OPTIONS: { label: string; score: number }[] = [
+  { label: "Casual", score: 3 },
+  { label: "Smart", score: 6 },
+  { label: "Formal", score: 9 },
+];
+
+// Subcategories that came from the mock AI archetypes.
+// If any item carries one of these, we surface the "Fix my wardrobe" banner.
+const MOCK_SUBCATEGORIES = new Set([
+  "oxford shirt",
+  "wool trousers",
+  "wool coat",
+  "leather loafer",
+  "silk scarf",
+  "midi dress",
+]);
+
 interface WardrobeItem {
   id: string;
   raw_path: string;
@@ -75,6 +102,8 @@ function WardrobePage() {
   const { uploadOpen, setUploadOpen, selectedItemIds, toggleSelect, clearSelection } = useUI();
   const [filter, setFilter] = useState<Category | "all">("all");
   const [pendingUpload, setPendingUpload] = useState<PendingUploadItem | null>(null);
+  const [editItemId, setEditItemId] = useState<string | null>(null);
+  const [bannerDismissed, setBannerDismissed] = useState(false);
 
   const itemsQuery = useQuery({
     queryKey: ["wardrobe", user?.id],
@@ -144,6 +173,12 @@ function WardrobePage() {
 
   const categoryCount = new Set(items.map((i) => i.category).filter(Boolean)).size;
 
+  const miscategorized = useMemo(
+    () => items.filter((i) => i.subcategory && MOCK_SUBCATEGORIES.has(i.subcategory.toLowerCase())),
+    [items],
+  );
+  const showBanner = !bannerDismissed && miscategorized.length > 0;
+
   const archiveMutation = useMutation({
     mutationFn: async (ids: string[]) => {
       const { error } = await supabase
@@ -205,6 +240,40 @@ function WardrobePage() {
         </div>
       </header>
 
+      {/* Fix-my-wardrobe banner (only when mock-AI subcategories detected) */}
+      <AnimatePresence>
+        {showBanner && (
+          <motion.button
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: dur.page, ease: ease.luxury }}
+            onClick={() => setEditItemId(miscategorized[0].id)}
+            className="block w-full border-b border-linen bg-linen/60 hover:bg-linen"
+          >
+            <div className="mx-auto flex max-w-[1280px] items-center justify-between gap-4 px-6 py-3 md:px-12 lg:px-24">
+              <div className="flex items-center gap-3 text-left">
+                <Sparkles className="h-4 w-4 shrink-0 text-graphite" strokeWidth={1.25} />
+                <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-graphite">
+                  Some items were auto-categorized. Tap to review.
+                </p>
+              </div>
+              <span
+                role="button"
+                tabIndex={0}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setBannerDismissed(true);
+                }}
+                className="font-mono text-[10px] uppercase tracking-[0.2em] text-ink hover:text-graphite"
+              >
+                Dismiss
+              </span>
+            </div>
+          </motion.button>
+        )}
+      </AnimatePresence>
+
       {/* Grid */}
       <section className="mx-auto max-w-[1280px] px-6 py-12 md:px-12 lg:px-24">
         {itemsQuery.isLoading ? (
@@ -239,6 +308,10 @@ function WardrobePage() {
                     index={pendingUpload ? i + 1 : i}
                     selected={selectedItemIds.has(item.id)}
                     onToggleSelect={() => toggleSelect(item.id)}
+                    onTap={() => {
+                      if (selectedItemIds.size > 0) toggleSelect(item.id);
+                      else setEditItemId(item.id);
+                    }}
                   />
                 ))}
               </Grid>
@@ -290,6 +363,22 @@ function WardrobePage() {
           />
         )}
       </AnimatePresence>
+
+      {/* Edit sheet */}
+      <AnimatePresence>
+        {editItemId && (
+          <EditSheet
+            item={items.find((i) => i.id === editItemId) ?? null}
+            onClose={() => setEditItemId(null)}
+            onAdvance={() => {
+              const remaining = miscategorized.filter((m) => m.id !== editItemId);
+              if (remaining.length > 0) setEditItemId(remaining[0].id);
+              else setEditItemId(null);
+            }}
+            hasMore={miscategorized.filter((m) => m.id !== editItemId).length > 0}
+          />
+        )}
+      </AnimatePresence>
     </Shell>
   );
 }
@@ -312,12 +401,14 @@ function Tile({
   index,
   selected,
   onToggleSelect,
+  onTap,
   pending,
 }: {
   item?: WardrobeItem;
   index: number;
   selected?: boolean;
   onToggleSelect?: () => void;
+  onTap?: () => void;
   pending?: { previewUrl: string; label: string };
 }) {
   const stagger = Math.min(index, 17) * 0.035;
@@ -330,6 +421,7 @@ function Tile({
   const [imgUrl, setImgUrl] = useState<string | null>(pending?.previewUrl ?? enhancedUrl ?? thumbUrl);
 
   const longPressTimer = useRef<number | null>(null);
+  const longPressFiredRef = useRef(false);
 
   useEffect(() => {
     setImgUrl(pending?.previewUrl ?? enhancedUrl ?? thumbUrl);
@@ -346,7 +438,13 @@ function Tile({
         onToggleSelect?.();
       }}
       onPointerDown={() => {
-        if (onToggleSelect) longPressTimer.current = window.setTimeout(onToggleSelect, 500);
+        longPressFiredRef.current = false;
+        if (onToggleSelect) {
+          longPressTimer.current = window.setTimeout(() => {
+            longPressFiredRef.current = true;
+            onToggleSelect();
+          }, 500);
+        }
       }}
       onPointerUp={() => {
         if (longPressTimer.current) clearTimeout(longPressTimer.current);
@@ -355,7 +453,11 @@ function Tile({
         if (longPressTimer.current) clearTimeout(longPressTimer.current);
       }}
       onClick={() => {
-        // Tap toggles selection if any are selected
+        if (longPressFiredRef.current) {
+          longPressFiredRef.current = false;
+          return;
+        }
+        onTap?.();
       }}
       className={`group relative aspect-[3/4] cursor-pointer bg-linen p-3 transition-shadow ${
         selected ? "ring-1 ring-graphite ring-offset-2 ring-offset-bone" : ""
@@ -462,12 +564,18 @@ function UploadSheet({
   const [dragOver, setDragOver] = useState(false);
   const [stage, setStage] = useState<UploadStage>("idle");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [pickedFile, setPickedFile] = useState<File | null>(null);
+  const [pickedPreview, setPickedPreview] = useState<string | null>(null);
+  const [pickedCategory, setPickedCategory] = useState<Category | null>(null);
+  const [pickedSubcategory, setPickedSubcategory] = useState("");
+  const [pickedFormality, setPickedFormality] = useState<number>(6);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const dropInputRef = useRef<HTMLInputElement>(null);
   const insertedItemIdRef = useRef<string | null>(null);
 
   const uploading = stage !== "idle" && stage !== "done";
+  const categorizing = !!pickedFile && stage === "idle";
 
   // Watch the wardrobe cache reactively so the sheet auto-closes when enhancement completes.
   const wardrobe = useQuery({
@@ -513,8 +621,33 @@ function UploadSheet({
     if (dropInputRef.current) dropInputRef.current.value = "";
   };
 
-  const handleFile = async (file: File) => {
-    if (!user) return;
+  const resetPicked = () => {
+    if (pickedPreview) URL.revokeObjectURL(pickedPreview);
+    setPickedFile(null);
+    setPickedPreview(null);
+    setPickedCategory(null);
+    setPickedSubcategory("");
+    setPickedFormality(6);
+  };
+
+  const pickFile = (file: File) => {
+    setErrorMsg(null);
+    if (pickedPreview) URL.revokeObjectURL(pickedPreview);
+    const url = URL.createObjectURL(file);
+    setPickedFile(file);
+    setPickedPreview(url);
+    setPickedCategory(null);
+    setPickedSubcategory("");
+    setPickedFormality(6);
+    resetInputs();
+  };
+
+  const handleSubmit = async () => {
+    if (!user || !pickedFile || !pickedCategory) return;
+    const file = pickedFile;
+    const userCategory = pickedCategory;
+    const userSubcategory = pickedSubcategory.trim();
+    const userFormality = pickedFormality;
     setErrorMsg(null);
     const itemId = crypto.randomUUID();
     const previewUrl = URL.createObjectURL(file);
@@ -552,6 +685,9 @@ function UploadSheet({
         raw_path: rawPath,
         thumbnail_path: thumbPath,
         placeholder,
+        category: userCategory,
+        subcategory: userSubcategory || null,
+        formality_score: userFormality,
       });
       if (insertErr) throw new DbInsertError(insertErr.message);
 
@@ -562,7 +698,10 @@ function UploadSheet({
       setStage("enhancing");
       onPendingChange({ id: itemId, previewUrl, stage: "enhancing" });
 
-      // Fire-and-forget mock enhance + analyze
+      // Fire-and-forget mock enhance + analyze. We INTENTIONALLY skip writing
+      // category / subcategory / formality_score from the mock — those are owned
+      // by the user. The mock still fills in color/material/season/tags so the
+      // gallery has something to show.
       (async () => {
         try {
           const [bg, analysis] = await Promise.all([
@@ -577,21 +716,19 @@ function UploadSheet({
             .from("wardrobe_items")
             .update({
               enhanced_path: bg.enhanced_path,
-              category: analysis.category,
-              subcategory: analysis.subcategory,
               color_primary: analysis.color_primary,
               color_secondary: analysis.color_secondary,
               material: analysis.material,
               season: analysis.season,
-              formality_score: analysis.formality_score,
               tags: analysis.tags,
             })
             .eq("id", itemId);
-          // realtime subscription will refetch and the effect above closes the sheet
         } catch (err) {
           console.error("Enhance failed", err);
         }
       })();
+
+      resetPicked();
     } catch (e) {
       const isKnown =
         e instanceof UnsupportedFormatError ||
@@ -662,7 +799,7 @@ function UploadSheet({
           className="hidden"
           onChange={(e) => {
             const f = e.target.files?.[0];
-            if (f) handleFile(f);
+            if (f) pickFile(f);
           }}
         />
         <input
@@ -672,7 +809,7 @@ function UploadSheet({
           className="hidden"
           onChange={(e) => {
             const f = e.target.files?.[0];
-            if (f) handleFile(f);
+            if (f) pickFile(f);
           }}
         />
         <input
@@ -682,11 +819,11 @@ function UploadSheet({
           className="hidden"
           onChange={(e) => {
             const f = e.target.files?.[0];
-            if (f) handleFile(f);
+            if (f) pickFile(f);
           }}
         />
 
-        {stage === "idle" && (
+        {stage === "idle" && !categorizing && (
           <>
             <div className="mt-8 grid grid-cols-2 gap-4">
               <motion.button
@@ -721,7 +858,7 @@ function UploadSheet({
                 e.preventDefault();
                 setDragOver(false);
                 const f = e.dataTransfer.files?.[0];
-                if (f) handleFile(f);
+                if (f) pickFile(f);
               }}
               onClick={() => dropInputRef.current?.click()}
               className={`mt-6 hidden h-40 cursor-pointer flex-col items-center justify-center border border-dashed transition-colors md:flex ${
@@ -742,6 +879,110 @@ function UploadSheet({
               <p className="mt-4 text-center font-mono text-[11px] text-noir">{errorMsg}</p>
             )}
           </>
+        )}
+
+        {/* Categorize step — user owns the label */}
+        {categorizing && pickedPreview && (
+          <div className="mt-6">
+            <div
+              className="flex items-center justify-center bg-linen"
+              style={{ height: "280px" }}
+            >
+              <img
+                src={pickedPreview}
+                alt="Selected"
+                className="h-full w-full object-contain"
+              />
+            </div>
+
+            <h3 className="mt-8 font-display text-[24px] font-light text-graphite">
+              What is this?
+            </h3>
+
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              {CATEGORY_OPTIONS.slice(0, 6).map(({ id, label }) => {
+                const active = pickedCategory === id;
+                return (
+                  <motion.button
+                    {...tap}
+                    key={id}
+                    onClick={() => setPickedCategory(id)}
+                    className={`h-[72px] border text-[13px] uppercase tracking-[0.12em] ${
+                      active
+                        ? "border-graphite bg-graphite text-bone"
+                        : "border-ink/40 bg-linen text-graphite hover:border-ink"
+                    }`}
+                    style={{ transitionDuration: "220ms", transitionTimingFunction: "cubic-bezier(0.16,1,0.3,1)" }}
+                  >
+                    {label}
+                  </motion.button>
+                );
+              })}
+              {/* Bag — full width */}
+              <motion.button
+                {...tap}
+                onClick={() => setPickedCategory("bag")}
+                className={`col-span-2 h-[72px] border text-[13px] uppercase tracking-[0.12em] ${
+                  pickedCategory === "bag"
+                    ? "border-graphite bg-graphite text-bone"
+                    : "border-ink/40 bg-linen text-graphite hover:border-ink"
+                }`}
+                style={{ transitionDuration: "220ms", transitionTimingFunction: "cubic-bezier(0.16,1,0.3,1)" }}
+              >
+                Bag
+              </motion.button>
+            </div>
+
+            <input
+              type="text"
+              value={pickedSubcategory}
+              onChange={(e) => setPickedSubcategory(e.target.value)}
+              placeholder="Describe it (optional)"
+              className="mt-6 w-full border-0 border-b border-ink bg-transparent py-2 font-mono text-[13px] text-graphite placeholder:text-ink/60 focus:border-graphite focus:outline-none"
+            />
+
+            <div className="mt-6 flex gap-2">
+              {FORMALITY_OPTIONS.map(({ label, score }) => {
+                const active = pickedFormality === score;
+                return (
+                  <motion.button
+                    {...tap}
+                    key={score}
+                    onClick={() => setPickedFormality(score)}
+                    className={`h-9 flex-1 rounded-full px-4 font-mono text-[11px] uppercase tracking-[0.16em] transition-colors ${
+                      active
+                        ? "bg-graphite text-bone"
+                        : "border border-ink text-ink hover:border-graphite hover:text-graphite"
+                    }`}
+                  >
+                    {label}
+                  </motion.button>
+                );
+              })}
+            </div>
+
+            <div className="mt-6 flex items-center gap-3">
+              <button
+                onClick={resetPicked}
+                className="font-mono text-[11px] uppercase tracking-[0.16em] text-ink hover:text-graphite"
+              >
+                Cancel
+              </button>
+              <motion.button
+                {...tap}
+                onClick={handleSubmit}
+                disabled={!pickedCategory}
+                className="ml-auto h-12 flex-1 bg-graphite font-mono text-[12px] uppercase text-bone hover:bg-noir disabled:opacity-30"
+                style={{ letterSpacing: "0.08em" }}
+              >
+                Add to wardrobe
+              </motion.button>
+            </div>
+
+            {errorMsg && (
+              <p className="mt-4 text-center font-mono text-[11px] text-noir">{errorMsg}</p>
+            )}
+          </div>
         )}
 
         {stage !== "idle" && (
@@ -810,6 +1051,232 @@ function UploadSheet({
             </div>
           </div>
         )}
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function EditSheet({
+  item,
+  onClose,
+  onAdvance,
+  hasMore,
+}: {
+  item: WardrobeItem | null;
+  onClose: () => void;
+  onAdvance: () => void;
+  hasMore: boolean;
+}) {
+  const qc = useQueryClient();
+  const { user } = useAuth();
+  const [category, setCategory] = useState<Category | null>(item?.category ?? null);
+  const [subcategory, setSubcategory] = useState(item?.subcategory ?? "");
+  const [formality, setFormality] = useState<number>(item?.formality_score ?? 6);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setCategory(item?.category ?? null);
+    setSubcategory(item?.subcategory ?? "");
+    setFormality(item?.formality_score ?? 6);
+  }, [item?.id, item?.category, item?.subcategory, item?.formality_score]);
+
+  if (!item) return null;
+
+  const enhancedUrl = item.enhanced_path
+    ? supabase.storage.from("wardrobe-enhanced").getPublicUrl(item.enhanced_path).data.publicUrl
+    : null;
+  const thumbUrl = item.thumbnail_path
+    ? supabase.storage.from("wardrobe-thumbs").getPublicUrl(item.thumbnail_path).data.publicUrl
+    : null;
+  const previewUrl = enhancedUrl ?? thumbUrl;
+
+  const finish = (advance: boolean) => {
+    qc.invalidateQueries({ queryKey: ["wardrobe", user?.id] });
+    if (advance && hasMore) onAdvance();
+    else onClose();
+  };
+
+  const save = async () => {
+    if (!category) return;
+    setBusy(true);
+    const { error } = await supabase
+      .from("wardrobe_items")
+      .update({
+        category,
+        subcategory: subcategory.trim() || null,
+        formality_score: formality,
+      })
+      .eq("id", item.id);
+    setBusy(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast("Saved");
+    finish(true);
+  };
+
+  const archive = async () => {
+    setBusy(true);
+    const { error } = await supabase
+      .from("wardrobe_items")
+      .update({ archived: true })
+      .eq("id", item.id);
+    setBusy(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast("Archived");
+    finish(false);
+  };
+
+  const remove = async () => {
+    setBusy(true);
+    const { error } = await supabase.from("wardrobe_items").delete().eq("id", item.id);
+    setBusy(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast("Deleted");
+    finish(false);
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: dur.hover }}
+      className="fixed inset-0 z-50 flex items-end justify-center bg-graphite/40"
+      onClick={busy ? undefined : onClose}
+    >
+      <motion.div
+        initial={{ y: "100%" }}
+        animate={{ y: 0 }}
+        exit={{ y: "100%" }}
+        transition={{ duration: dur.page, ease: ease.luxury }}
+        onClick={(e) => e.stopPropagation()}
+        className="h-[85vh] w-full max-w-[1280px] overflow-y-auto bg-bone px-6 py-8 md:px-12"
+        style={{ borderRadius: "4px 4px 0 0" }}
+      >
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-ink">
+              Edit piece
+            </p>
+            <h2 className="mt-2 font-display text-[28px] font-light text-graphite">
+              {item.subcategory || item.category || "Untitled"}
+            </h2>
+          </div>
+          <button
+            onClick={onClose}
+            disabled={busy}
+            className="text-ink hover:text-graphite disabled:opacity-30"
+            aria-label="Close"
+          >
+            <X className="h-5 w-5" strokeWidth={1.25} />
+          </button>
+        </div>
+
+        {previewUrl && (
+          <div
+            className="mt-6 flex items-center justify-center bg-linen"
+            style={{ height: "280px" }}
+          >
+            <img src={previewUrl} alt="Item" className="h-full w-full object-contain" />
+          </div>
+        )}
+
+        <h3 className="mt-8 font-display text-[20px] font-light text-graphite">Category</h3>
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          {CATEGORY_OPTIONS.slice(0, 6).map(({ id, label }) => {
+            const active = category === id;
+            return (
+              <motion.button
+                {...tap}
+                key={id}
+                onClick={() => setCategory(id)}
+                className={`h-[64px] border text-[13px] uppercase tracking-[0.12em] ${
+                  active
+                    ? "border-graphite bg-graphite text-bone"
+                    : "border-ink/40 bg-linen text-graphite hover:border-ink"
+                }`}
+                style={{ transitionDuration: "220ms", transitionTimingFunction: "cubic-bezier(0.16,1,0.3,1)" }}
+              >
+                {label}
+              </motion.button>
+            );
+          })}
+          <motion.button
+            {...tap}
+            onClick={() => setCategory("bag")}
+            className={`col-span-2 h-[64px] border text-[13px] uppercase tracking-[0.12em] ${
+              category === "bag"
+                ? "border-graphite bg-graphite text-bone"
+                : "border-ink/40 bg-linen text-graphite hover:border-ink"
+            }`}
+            style={{ transitionDuration: "220ms", transitionTimingFunction: "cubic-bezier(0.16,1,0.3,1)" }}
+          >
+            Bag
+          </motion.button>
+        </div>
+
+        <input
+          type="text"
+          value={subcategory}
+          onChange={(e) => setSubcategory(e.target.value)}
+          placeholder="Describe it (optional)"
+          className="mt-6 w-full border-0 border-b border-ink bg-transparent py-2 font-mono text-[13px] text-graphite placeholder:text-ink/60 focus:border-graphite focus:outline-none"
+        />
+
+        <div className="mt-6 flex gap-2">
+          {FORMALITY_OPTIONS.map(({ label, score }) => {
+            const active = formality === score;
+            return (
+              <motion.button
+                {...tap}
+                key={score}
+                onClick={() => setFormality(score)}
+                className={`h-9 flex-1 rounded-full px-4 font-mono text-[11px] uppercase tracking-[0.16em] transition-colors ${
+                  active
+                    ? "bg-graphite text-bone"
+                    : "border border-ink text-ink hover:border-graphite hover:text-graphite"
+                }`}
+              >
+                {label}
+              </motion.button>
+            );
+          })}
+        </div>
+
+        <motion.button
+          {...tap}
+          onClick={save}
+          disabled={busy || !category}
+          className="mt-8 h-12 w-full bg-graphite font-mono text-[12px] uppercase text-bone hover:bg-noir disabled:opacity-30"
+          style={{ letterSpacing: "0.08em" }}
+        >
+          {hasMore ? "Save & next" : "Save"}
+        </motion.button>
+
+        <div className="mt-6 flex items-center justify-between border-t border-linen pt-6">
+          <button
+            onClick={archive}
+            disabled={busy}
+            className="font-mono text-[11px] uppercase tracking-[0.16em] text-ink hover:text-graphite disabled:opacity-30"
+          >
+            Archive
+          </button>
+          <button
+            onClick={remove}
+            disabled={busy}
+            className="font-mono text-[11px] uppercase tracking-[0.16em] text-noir hover:opacity-70 disabled:opacity-30"
+          >
+            Delete
+          </button>
+        </div>
       </motion.div>
     </motion.div>
   );
