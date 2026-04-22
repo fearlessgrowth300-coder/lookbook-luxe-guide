@@ -179,7 +179,22 @@ async function decodeImageSource(file: File): Promise<DecodedImage> {
       };
     }
   } catch {
-    // Fall through to ImageBitmap decode as a final fallback.
+    try {
+      const image = await loadHtmlImage(await blobToChunkedDataUrl(normalizedFile));
+      const width = image.naturalWidth || image.width;
+      const height = image.naturalHeight || image.height;
+
+      if (width > 0 && height > 0) {
+        return {
+          source: image,
+          width,
+          height,
+          dispose: () => undefined,
+        };
+      }
+    } catch {
+      // Fall through to ImageBitmap decode as a final fallback.
+    }
   }
 
   try {
