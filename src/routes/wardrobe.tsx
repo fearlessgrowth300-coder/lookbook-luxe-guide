@@ -575,8 +575,6 @@ interface StagedItem {
   };
 }
 
-import { analyzeWardrobeItem } from "@/server/functions/analyzeWardrobeItem";
-import { useServerFn } from "@tanstack/react-start";
 
 function UploadSheet({
   onClose,
