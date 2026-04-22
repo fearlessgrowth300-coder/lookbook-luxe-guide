@@ -21,10 +21,12 @@ import {
   UploadError,
 } from "@/lib/upload-errors";
 import {
-  mockRemoveBackground,
   mockAnalyzeGarment,
   type Category,
 } from "@/server/mock-ai";
+import { removeBg, warmBgRemoval } from "@/lib/bg-removal";
+
+const BG_REMOVAL_FIRST_RUN_KEY = "atelier:bg-removal-seen";
 
 export const Route = createFileRoute("/wardrobe")({
   component: () => (
