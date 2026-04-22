@@ -639,16 +639,60 @@ function UploadSheet({
     setPickedFormality(6);
   };
 
-  const pickFile = (file: File) => {
+  const pickFile = async (rawFile: File) => {
     setErrorMsg(null);
+    setDebugLog([]);
     if (pickedPreview) URL.revokeObjectURL(pickedPreview);
-    const url = URL.createObjectURL(file);
-    setPickedFile(file);
-    setPickedPreview(url);
-    setPickedCategory(null);
-    setPickedSubcategory("");
-    setPickedFormality(6);
-    resetInputs();
+
+    // CRITICAL: drain the OS file handle to memory IMMEDIATELY. Android
+    // Brave/Chrome revoke the handle between pick and use; reading the
+    // ArrayBuffer right now is what saves us.
+    try {
+      const result = await readFileToBlob(rawFile, (event) => pushLog(event.step, event.detail));
+      const inMemoryFile = blobToFile(result);
+      const url = URL.createObjectURL(result.blob);
+      setPickedFile(inMemoryFile);
+      setPickedPreview(url);
+      setPickedCategory(null);
+      setPickedSubcategory("");
+      setPickedFormality(6);
+    } catch (err) {
+      const errorName = err instanceof Error ? err.name : "UnknownError";
+      const errorMessage = err instanceof Error ? err.message : "Unknown read failure";
+      const step = getStep(err, "FILE UNREADABLE");
+      const truncated = errorMessage.length > 120 ? `${errorMessage.slice(0, 117)}…` : errorMessage;
+
+      console.error("[file read failed]", {
+        step,
+        fileName: rawFile.name,
+        fileType: rawFile.type,
+        fileSize: rawFile.size,
+        userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "n/a",
+        errorName,
+        errorMessage,
+        errorStack: err instanceof Error ? err.stack : undefined,
+      });
+
+      pushLog(`failed: ${step}`, truncated);
+
+      toast.error("Couldn't read this photo.", {
+        description: (
+          <div className="space-y-1">
+            <div className="font-mono text-[12px] uppercase tracking-[0.16em] text-ink">
+              {step}
+            </div>
+            <div className="font-mono text-[11px] text-ink/60">
+              Please tap Choose from Gallery again and try a different image, or take a new photo.
+            </div>
+          </div>
+        ),
+        duration: 9000,
+      });
+
+      setErrorMsg(`${step}: ${truncated}`);
+    } finally {
+      resetInputs();
+    }
   };
 
   const handleSubmit = async () => {
@@ -658,8 +702,8 @@ function UploadSheet({
     const userSubcategory = pickedSubcategory.trim();
     const userFormality = pickedFormality;
     setErrorMsg(null);
-    setDebugLog([]);
     const itemId = crypto.randomUUID();
+    // Reuse the same in-memory bytes for the pending preview tile.
     const previewUrl = URL.createObjectURL(file);
     onPendingChange({ id: itemId, previewUrl, stage: "decoding" });
     let lastUploadStep = "INIT";
