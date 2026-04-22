@@ -27,7 +27,72 @@ function canvasToBlob(
   });
 }
 
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") resolve(reader.result);
+      else reject(new Error("Image decode failed"));
+    };
+    reader.onerror = () => reject(new Error("Image decode failed"));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function loadHtmlImage(src: string): Promise<HTMLImageElement> {
+  return await new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image();
+    img.decoding = "async";
+    img.onload = async () => {
+      try {
+        await img.decode?.();
+      } catch {
+        // Some mobile browsers fire onload but reject decode(); drawImage still works.
+      }
+      resolve(img);
+    };
+    img.onerror = () => reject(new Error("Image decode failed"));
+    img.src = src;
+  });
+}
+
 async function decodeImageSource(file: File): Promise<DecodedImage> {
+  const objectUrl = URL.createObjectURL(file);
+
+  try {
+    const image = await loadHtmlImage(objectUrl);
+    const width = image.naturalWidth || image.width;
+    const height = image.naturalHeight || image.height;
+
+    if (width > 0 && height > 0) {
+      return {
+        source: image,
+        width,
+        height,
+        dispose: () => URL.revokeObjectURL(objectUrl),
+      };
+    }
+  } catch {
+    URL.revokeObjectURL(objectUrl);
+  }
+
+  try {
+    const image = await loadHtmlImage(await fileToDataUrl(file));
+    const width = image.naturalWidth || image.width;
+    const height = image.naturalHeight || image.height;
+
+    if (width > 0 && height > 0) {
+      return {
+        source: image,
+        width,
+        height,
+        dispose: () => undefined,
+      };
+    }
+  } catch {
+    // Fall through to ImageBitmap decode as a final fallback.
+  }
+
   try {
     const bitmap = await createImageBitmap(file);
     if (bitmap.width > 0 && bitmap.height > 0) {
@@ -40,39 +105,12 @@ async function decodeImageSource(file: File): Promise<DecodedImage> {
     }
     bitmap.close?.();
   } catch {
-    // Fall through to HTMLImageElement decode, which is more reliable on some mobile browsers.
+    // Final error below.
   }
 
-  const objectUrl = URL.createObjectURL(file);
-
-  try {
-    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const img = new Image();
-      img.decoding = "async";
-      img.onload = () => resolve(img);
-      img.onerror = () => reject(new Error("Image decode failed"));
-      img.src = objectUrl;
-    });
-
-    const width = image.naturalWidth || image.width;
-    const height = image.naturalHeight || image.height;
-
-    if (!width || !height) {
-      throw new Error("Image decode failed");
-    }
-
-    return {
-      source: image,
-      width,
-      height,
-      dispose: () => URL.revokeObjectURL(objectUrl),
-    };
-  } catch {
-    URL.revokeObjectURL(objectUrl);
-    throw new Error(
-      "This photo could not be decoded on your device. Try a JPG or PNG from your gallery.",
-    );
-  }
+  throw new Error(
+    "This photo could not be prepared on your device yet. Take it with your camera or choose it from your gallery and try again.",
+  );
 }
 
 function drawContained(
@@ -95,8 +133,19 @@ function drawContained(
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Canvas 2D context unavailable");
 
-  ctx.drawImage(source, dx, dy, drawWidth, drawHeight);
-  return canvas;
+  try {
+    ctx.drawImage(source, dx, dy, drawWidth, drawHeight);
+    return {
+      source: canvas,
+      width: targetWidth,
+      height: targetHeight,
+      dispose: () => undefined,
+    } as never;
+  } catch {
+    throw new Error(
+      "This photo loaded, but your browser could not draw it for upload. Try taking it again or pick it from your gallery.",
+    );
+  }
 }
 
 function drawCenteredCrop(
