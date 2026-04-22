@@ -40,10 +40,13 @@ export type Database = {
       }
       outfits: {
         Row: {
+          batch_id: string | null
           context: Json | null
           generated_at: string | null
           id: string
           item_ids: string[]
+          look_sequence: number | null
+          name: string | null
           occasion: string | null
           rationale: string | null
           saved: boolean | null
@@ -52,10 +55,13 @@ export type Database = {
           worn_on: string | null
         }
         Insert: {
+          batch_id?: string | null
           context?: Json | null
           generated_at?: string | null
           id?: string
           item_ids: string[]
+          look_sequence?: number | null
+          name?: string | null
           occasion?: string | null
           rationale?: string | null
           saved?: boolean | null
@@ -64,10 +70,13 @@ export type Database = {
           worn_on?: string | null
         }
         Update: {
+          batch_id?: string | null
           context?: Json | null
           generated_at?: string | null
           id?: string
           item_ids?: string[]
+          look_sequence?: number | null
+          name?: string | null
           occasion?: string | null
           rationale?: string | null
           saved?: boolean | null
