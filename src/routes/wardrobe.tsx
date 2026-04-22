@@ -574,6 +574,13 @@ function UploadSheet({
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const dropInputRef = useRef<HTMLInputElement>(null);
   const insertedItemIdRef = useRef<string | null>(null);
+  const [debugLog, setDebugLog] = useState<{ ts: number; step: string; detail?: string }[]>([]);
+  const debugMode = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    return new URLSearchParams(window.location.search).get("debug") === "1";
+  }, []);
+  const pushLog = (step: string, detail?: string) =>
+    setDebugLog((prev) => [...prev, { ts: Date.now(), step, detail }]);
 
   const uploading = stage !== "idle" && stage !== "done";
   const categorizing = !!pickedFile && stage === "idle";
