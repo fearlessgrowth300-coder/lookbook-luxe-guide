@@ -10,12 +10,9 @@ import { useAuth } from "@/lib/auth";
 import { useUI, type Mood } from "@/lib/store";
 import { supabase } from "@/integrations/supabase/client";
 import { ease, dur, tap } from "@/lib/motion";
-import {
-  mockGenerateDailyPrompt,
-  mockSuggestOutfits,
-  type Occasion,
-} from "@/server/mock-ai";
-import { testRateLimit } from "@/server/functions/testRateLimit";
+import { type Occasion } from "@/server/mock-ai";
+import { suggestOutfit } from "@/server/functions/suggestOutfit";
+import { generateDailyPrompt } from "@/server/functions/generateDailyPrompt";
 
 export const Route = createFileRoute("/today")({
   component: () => (
@@ -61,45 +58,52 @@ function TodayPage() {
   );
   const dayName = today.toLocaleDateString("en-US", { weekday: "long" });
 
-  // Daily prompt
+  // Daily prompt — server function caches per user/day; geolocation optional.
   const promptQuery = useQuery({
     queryKey: ["daily-prompt", user?.id, today.toDateString()],
     enabled: !!user,
     queryFn: async () => {
-      const dateStr = today.toISOString().slice(0, 10);
-      const { data: existing } = await supabase
-        .from("daily_prompts")
-        .select("*")
-        .eq("user_id", user!.id)
-        .eq("prompt_date", dateStr)
-        .maybeSingle();
-      if (existing) return existing;
+      // Best-effort browser geolocation. Time out fast and ignore errors —
+      // the server falls back to neutral defaults.
+      const coords = await new Promise<{ lat: number; lon: number } | null>(
+        (resolve) => {
+          if (typeof navigator === "undefined" || !navigator.geolocation) {
+            resolve(null);
+            return;
+          }
+          const timer = setTimeout(() => resolve(null), 2500);
+          navigator.geolocation.getCurrentPosition(
+            (pos) => {
+              clearTimeout(timer);
+              resolve({
+                lat: pos.coords.latitude,
+                lon: pos.coords.longitude,
+              });
+            },
+            () => {
+              clearTimeout(timer);
+              resolve(null);
+            },
+            { timeout: 2000, maximumAge: 60 * 60 * 1000 },
+          );
+        },
+      );
 
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("style_archetype")
-        .eq("id", user!.id)
-        .maybeSingle();
-
-      const result = await mockGenerateDailyPrompt({
-        user_id: user!.id,
-        temp_c: 14,
-        weather: "Overcast",
-        day_of_week: dayName,
-        archetype: profile?.style_archetype ?? null,
+      const result = await generateDailyPrompt({
+        data: coords ?? {},
       });
 
-      const { data: inserted } = await supabase
-        .from("daily_prompts")
-        .insert({
+      if ("error" in result) {
+        // Soft-fail: return a neutral prompt object rather than break the page
+        return {
+          id: "fallback",
           user_id: user!.id,
-          prompt_date: dateStr,
-          prompt_text: result.prompt_text,
-          context: result.context,
-        })
-        .select()
-        .single();
-      return inserted!;
+          prompt_date: today.toISOString().slice(0, 10),
+          prompt_text: "Today, choose less. Then choose well.",
+          context: { fallback: true, reason: result.error },
+        };
+      }
+      return result.prompt;
     },
   });
 
@@ -159,45 +163,51 @@ function TodayPage() {
     setGenerating(true);
     try {
       const wardrobe = wardrobeQuery.data ?? [];
-      if (wardrobe.length < 5) {
-        toast("Add at least 5 pieces to compose looks.");
+      if (wardrobe.length < 3) {
+        toast("Add at least 3 pieces to compose looks.");
         return;
       }
-      const candidates = wardrobe.map((i) => ({
-        id: i.id,
-        category: i.category,
-        subcategory: i.subcategory,
-        formality_score: i.formality_score,
-      }));
 
-      const suggestions = await mockSuggestOutfits({
-        user_id: user.id,
-        occasion: selected,
-        temp_c: 14,
-        candidates,
-        count: 3,
+      const result = await suggestOutfit({
+        data: {
+          occasion: selected,
+          temp_c: 14,
+          mood,
+        },
       });
 
-      if (!suggestions.length) {
-        toast(`Add a few more pieces to compose ${selected} looks.`);
+      if ("error" in result) {
+        switch (result.error) {
+          case "rate_limited":
+            toast("Daily limit reached. Resets at midnight.");
+            break;
+          case "insufficient_wardrobe":
+            toast("Add more items to start composing looks.");
+            break;
+          case "insufficient_for_occasion": {
+            const what = result.missing[0] ?? "items";
+            toast(
+              `Add a pair of ${selected}-appropriate ${what} to compose ${selected} looks.`,
+            );
+            break;
+          }
+          case "composition_failed":
+            toast(
+              "Couldn't compose valid looks. Try adjusting mood or adding items.",
+            );
+            break;
+          case "ai_unavailable":
+            toast(result.message ?? "AI is busy. Try again in a moment.");
+            break;
+          case "llm_parse_failed":
+          default:
+            toast("Something went wrong. Try again.");
+        }
+        setShake((s) => s + 1);
         return;
       }
 
-      const batchId = crypto.randomUUID();
-      const rows = suggestions.map((s, i) => ({
-        user_id: user.id,
-        item_ids: s.item_ids,
-        occasion: selected,
-        rationale: s.rationale,
-        name: s.name,
-        batch_id: batchId,
-        look_sequence: i + 1,
-        context: { temp_c: 14, mood },
-      }));
-      const { error } = await supabase.from("outfits").insert(rows);
-      if (error) throw error;
-
-      navigate({ to: "/today/looks", search: { batch: batchId } });
+      navigate({ to: "/today/looks", search: { batch: result.batch_id } });
     } catch (e) {
       console.error(e);
       setShake((s) => s + 1);
@@ -410,9 +420,6 @@ function TodayPage() {
         </section>
       )}
 
-      {/* TEMP: Step 7 rate-limit verification — remove after confirming */}
-      <RateLimitTester />
-
       {/* More occasions modal */}
       {moreOpen && (
         <MoreOccasionsModal
@@ -508,58 +515,5 @@ function MoreOccasionsModal({
         </div>
       </motion.div>
     </motion.div>
-  );
-}
-
-// TEMP: Step 7 verification widget. Calls testRateLimit (limit=2 per day for
-// the suggestOutfit bucket). First two calls succeed, third returns
-// rate_limited. Remove this component AND the import + tag in TodayPage once
-// you've confirmed it works end-to-end.
-function RateLimitTester() {
-  const [log, setLog] = useState<string[]>([]);
-  const [busy, setBusy] = useState(false);
-
-  async function run() {
-    setBusy(true);
-    try {
-      const res = await testRateLimit();
-      setLog((l) => [
-        `${new Date().toLocaleTimeString()} → ${JSON.stringify(res)}`,
-        ...l,
-      ]);
-    } catch (e) {
-      setLog((l) => [
-        `${new Date().toLocaleTimeString()} → ERROR ${
-          e instanceof Error ? e.message : String(e)
-        }`,
-        ...l,
-      ]);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <section className="mx-auto my-12 max-w-[680px] border border-dashed border-ink/40 p-6">
-      <div className="flex items-center justify-between gap-4">
-        <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-ink">
-          DEV · Rate-limit test (limit 2/day)
-        </p>
-        <button
-          onClick={run}
-          disabled={busy}
-          className="border border-ink px-4 py-2 font-mono text-[11px] uppercase tracking-[0.16em] text-graphite hover:bg-graphite hover:text-bone disabled:opacity-50"
-        >
-          {busy ? "…" : "Tap to test"}
-        </button>
-      </div>
-      {log.length > 0 && (
-        <ul className="mt-4 space-y-1 font-mono text-[11px] text-ink">
-          {log.map((line, i) => (
-            <li key={i}>{line}</li>
-          ))}
-        </ul>
-      )}
-    </section>
   );
 }
