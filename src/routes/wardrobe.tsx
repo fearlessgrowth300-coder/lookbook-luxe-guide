@@ -585,7 +585,10 @@ function UploadSheet({
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const dropInputRef = useRef<HTMLInputElement>(null);
-  const insertedItemIdRef = useRef<string | null>(null);
+  const [bgFirstRun, setBgFirstRun] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return !window.localStorage.getItem(BG_REMOVAL_FIRST_RUN_KEY);
+  });
   const [debugLog, setDebugLog] = useState<{ ts: number; step: string; detail?: string }[]>([]);
   const debugMode = useMemo(() => {
     if (typeof window === "undefined") return false;
@@ -596,24 +599,6 @@ function UploadSheet({
 
   const uploading = stage !== "idle" && stage !== "done";
   const categorizing = !!pickedFile && stage === "idle";
-
-  // Watch the wardrobe cache reactively so the sheet auto-closes when enhancement completes.
-  const wardrobe = useQuery({
-    queryKey: ["wardrobe", user?.id],
-    enabled: !!user,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("wardrobe_items")
-        .select(
-          "id, raw_path, enhanced_path, thumbnail_path, placeholder, category, subcategory, color_primary, formality_score",
-        )
-        .eq("user_id", user!.id)
-        .eq("archived", false)
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return (data ?? []) as WardrobeItem[];
-    },
-  }).data;
 
   // Pre-warm bg-removal as soon as the sheet opens — gives the user the
   // best chance the model is downloaded by the time they confirm category.
