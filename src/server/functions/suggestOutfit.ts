@@ -572,9 +572,9 @@ export const suggestOutfit = createServerFn({ method: "POST" })
       const candidateSummary = buildCandidateSummary(candidates);
       console.log("[suggestOutfit] Candidates available:", candidateSummary);
 
-      const reasons = validationResults
-        .filter((entry) => !entry.result.ok)
-        .map((entry) => entry.result.reason);
+      const reasons = validationResults.flatMap((entry) =>
+        entry.result.ok ? [] : [entry.result.reason],
+      );
 
       if (looks.length === 0) {
         reasons.push("no_looks_returned");
