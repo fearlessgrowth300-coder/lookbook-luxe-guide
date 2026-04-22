@@ -136,15 +136,16 @@ function TodayPage() {
     },
   });
 
+  // Keep in sync with FORMALITY_RANGE on the server (suggestOutfit.ts).
   const occasionViable = (occ: Occasion) => {
     const items = wardrobeQuery.data ?? [];
     const ranges: Record<Occasion, [number, number]> = {
-      office: [6, 9],
-      casual: [3, 6],
-      evening: [7, 10],
-      athletic: [1, 3],
-      formal: [9, 10],
-      travel: [3, 8],
+      office: [5, 10],
+      casual: [1, 7],
+      evening: [6, 10],
+      athletic: [1, 4],
+      formal: [8, 10],
+      travel: [2, 8],
     };
     const [lo, hi] = ranges[occ];
     return (
