@@ -10,11 +10,9 @@ import { useAuth } from "@/lib/auth";
 import { useUI, type Mood } from "@/lib/store";
 import { supabase } from "@/integrations/supabase/client";
 import { ease, dur, tap } from "@/lib/motion";
-import {
-  mockGenerateDailyPrompt,
-  type Occasion,
-} from "@/server/mock-ai";
+import { type Occasion } from "@/server/mock-ai";
 import { suggestOutfit } from "@/server/functions/suggestOutfit";
+import { generateDailyPrompt } from "@/server/functions/generateDailyPrompt";
 
 export const Route = createFileRoute("/today")({
   component: () => (
