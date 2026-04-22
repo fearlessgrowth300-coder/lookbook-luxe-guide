@@ -14,6 +14,27 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_usage: {
+        Row: {
+          count: number
+          day: string
+          function_name: string
+          user_id: string
+        }
+        Insert: {
+          count?: number
+          day: string
+          function_name: string
+          user_id: string
+        }
+        Update: {
+          count?: number
+          day?: string
+          function_name?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       daily_prompts: {
         Row: {
           context: Json | null
@@ -184,7 +205,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      increment_ai_usage: {
+        Args: { d: string; f: string; l: number; u: string }
+        Returns: Json
+      }
     }
     Enums: {
       [_ in never]: never
