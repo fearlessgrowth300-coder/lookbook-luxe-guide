@@ -1,6 +1,22 @@
-import heic2any from "heic2any";
-
 import { DecodeError, ThumbnailError, UnsupportedFormatError } from "@/lib/upload-errors";
+
+type Heic2AnyFn = (opts: {
+  blob: Blob;
+  toType?: string;
+  quality?: number;
+}) => Promise<Blob | Blob[]>;
+
+let heic2anyPromise: Promise<Heic2AnyFn> | null = null;
+
+async function loadHeic2Any(): Promise<Heic2AnyFn> {
+  if (typeof window === "undefined") {
+    throw new DecodeError("HEIC conversion is only available in the browser.");
+  }
+  if (!heic2anyPromise) {
+    heic2anyPromise = import("heic2any").then((m) => (m.default ?? m) as Heic2AnyFn);
+  }
+  return heic2anyPromise;
+}
 
 type DecodedImage = {
   file: File;
@@ -61,6 +77,7 @@ async function normalizeInputFile(file: File): Promise<{ file: File; wasHeicConv
   if (!hintedHeic) return { file, wasHeicConversion: false };
 
   try {
+    const heic2any = await loadHeic2Any();
     const converted = await heic2any({
       blob: file,
       toType: "image/jpeg",
