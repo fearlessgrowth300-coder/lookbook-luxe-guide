@@ -893,7 +893,7 @@ function UploadSheet({
           style={{ position: "absolute", opacity: 0, pointerEvents: "none", width: 1, height: 1 }}
           onChange={(e) => {
             const f = e.target.files?.[0];
-            if (f) pickFile(f);
+            if (f) void pickFile(f);
           }}
         />
         <input
@@ -903,7 +903,7 @@ function UploadSheet({
           style={{ position: "absolute", opacity: 0, pointerEvents: "none", width: 1, height: 1 }}
           onChange={(e) => {
             const f = e.target.files?.[0];
-            if (f) pickFile(f);
+            if (f) void pickFile(f);
           }}
         />
         <input
@@ -913,7 +913,7 @@ function UploadSheet({
           style={{ position: "absolute", opacity: 0, pointerEvents: "none", width: 1, height: 1 }}
           onChange={(e) => {
             const f = e.target.files?.[0];
-            if (f) pickFile(f);
+            if (f) void pickFile(f);
           }}
         />
 
