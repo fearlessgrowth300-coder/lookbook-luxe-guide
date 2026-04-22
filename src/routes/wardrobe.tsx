@@ -657,36 +657,52 @@ function UploadSheet({
     const userSubcategory = pickedSubcategory.trim();
     const userFormality = pickedFormality;
     setErrorMsg(null);
+    setDebugLog([]);
     const itemId = crypto.randomUUID();
     const previewUrl = URL.createObjectURL(file);
     onPendingChange({ id: itemId, previewUrl, stage: "decoding" });
+    let lastUploadStep = "INIT";
     try {
       const rawPath = `${user.id}/${itemId}.jpg`;
       const thumbPath = `${user.id}/${itemId}.jpg`;
 
       setStage("preparing");
+      lastUploadStep = "PREPARE";
+      const emit = (event: PipelineEvent) => pushLog(event.step, event.detail);
       const { rawBlob, thumbBlob, placeholder } = await prepareUploadAssets(
         file,
         1600,
         0.9,
         0.85,
         (s) => onPendingChange({ id: itemId, previewUrl, stage: s }),
+        emit,
       );
 
       setStage("uploading-thumb");
       onPendingChange({ id: itemId, previewUrl, stage: "uploading" });
+      lastUploadStep = "UPLOAD THUMB";
+      pushLog("uploading thumb", `${(thumbBlob.size / 1024).toFixed(0)}KB`);
       const thumbUp = await supabase.storage
         .from("wardrobe-thumbs")
         .upload(thumbPath, thumbBlob, { contentType: "image/jpeg" });
-      if (thumbUp.error) throw new UploadError(thumbUp.error.message);
+      if (thumbUp.error) {
+        throw new UploadError(thumbUp.error.message, `UPLOAD ${thumbUp.error.message}`);
+      }
+      pushLog("uploaded thumb");
 
       setStage("uploading-raw");
+      lastUploadStep = "UPLOAD RAW";
+      pushLog("uploading raw", `${(rawBlob.size / 1024 / 1024).toFixed(2)}MB`);
       const rawUp = await supabase.storage
         .from("wardrobe-raw")
         .upload(rawPath, rawBlob, { contentType: "image/jpeg" });
-      if (rawUp.error) throw new UploadError(rawUp.error.message);
+      if (rawUp.error) {
+        throw new UploadError(rawUp.error.message, `UPLOAD ${rawUp.error.message}`);
+      }
+      pushLog("uploaded raw");
 
       setStage("saving");
+      lastUploadStep = "DB INSERT";
       const { error: insertErr } = await supabase.from("wardrobe_items").insert({
         id: itemId,
         user_id: user.id,
@@ -697,7 +713,8 @@ function UploadSheet({
         subcategory: userSubcategory || null,
         formality_score: userFormality,
       });
-      if (insertErr) throw new DbInsertError(insertErr.message);
+      if (insertErr) throw new DbInsertError(insertErr.message, "DB INSERT FAILED");
+      pushLog("db insert ok");
 
       insertedItemIdRef.current = itemId;
       qc.invalidateQueries({ queryKey: ["wardrobe", user.id] });
@@ -738,17 +755,40 @@ function UploadSheet({
 
       resetPicked();
     } catch (e) {
-      const isKnown =
-        e instanceof UnsupportedFormatError ||
-        e instanceof DecodeError ||
-        e instanceof ThumbnailError ||
-        e instanceof UploadError ||
-        e instanceof DbInsertError;
-      const name = isKnown && e instanceof Error ? e.name : "UploadError";
-      const message = e instanceof Error ? e.message : "Upload failed";
-      console.error(`[upload:${name}]`, { name: file.name, size: file.size, type: file.type }, e);
-      setErrorMsg(`${name}: ${message}`);
-      toast.error(`${name}: ${message}`);
+      const errorName = e instanceof Error ? e.name : "UnknownError";
+      const errorMessage = e instanceof Error ? e.message : "Upload failed";
+      const errorStack = e instanceof Error ? e.stack : undefined;
+      const step = getStep(e, lastUploadStep);
+      const truncated = errorMessage.length > 120 ? `${errorMessage.slice(0, 117)}…` : errorMessage;
+
+      // Structured diagnostic — this is what we use to debug.
+      console.error("[upload pipeline failed]", {
+        step,
+        fileName: file.name,
+        fileType: file.type,
+        fileSize: file.size,
+        userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "n/a",
+        errorName,
+        errorMessage,
+        errorStack,
+      });
+
+      pushLog(`failed: ${step}`, truncated);
+
+      // Three-line rich toast.
+      toast.error("Couldn't prepare this photo.", {
+        description: (
+          <div className="space-y-1">
+            <div className="font-mono text-[12px] uppercase tracking-[0.16em] text-ink">
+              {step}
+            </div>
+            <div className="font-mono text-[11px] text-ink/60">{truncated}</div>
+          </div>
+        ),
+        duration: 8000,
+      });
+
+      setErrorMsg(`${step}: ${truncated}`);
       URL.revokeObjectURL(previewUrl);
       onPendingChange(null);
       setStage("idle");
