@@ -465,12 +465,14 @@ export const suggestOutfit = createServerFn({ method: "POST" })
 
     const candidateIds = new Set(candidates.map((c) => c.id));
 
-    // 6. Call AI with one retry that includes feedback
+    // 6. Call AI with one retry that can relax constraints if needed
     let payload: AIPayload | null = null;
     let validLooks: LookProposal[] = [];
     let lastReasons: string[] = [];
+    const batch_id = crypto.randomUUID();
 
     for (let attempt = 0; attempt < 2; attempt++) {
+      const relaxed = attempt === 1 && lastReasons.length > 0;
       const userPrompt = buildUserPrompt({
         occasion: data.occasion,
         temp_c: data.temp_c,
@@ -479,6 +481,7 @@ export const suggestOutfit = createServerFn({ method: "POST" })
         excludeBatchId: data.exclude_batch_id,
         candidateList,
         feedback: attempt === 1 ? lastReasons.join(", ") : undefined,
+        relaxed,
       });
 
       let raw: string;
@@ -539,34 +542,39 @@ export const suggestOutfit = createServerFn({ method: "POST" })
       payload = parsed;
       const looks = Array.isArray(parsed.looks) ? parsed.looks.slice(0, 3) : [];
 
-      // Filter to only well-formed looks before validation
-      const wellFormed = looks.filter(
-        (l) =>
-          l &&
-          Array.isArray(l.item_ids) &&
-          l.item_ids.every((id) => typeof id === "string" && candidateIds.has(id)) &&
-          typeof l.name === "string" &&
-          typeof l.rationale === "string",
-      );
+      console.log("[suggestOutfit] LLM response:", JSON.stringify(parsed, null, 2));
 
-      const reasons: string[] = [];
-      const passed: LookProposal[] = [];
-      for (const look of wellFormed) {
-        const r = validateLook(look, candidates, data.temp_c);
-        if (r.ok) passed.push(look);
-        else reasons.push(`look(${look.strategy ?? "?"}): ${r.reason}`);
-      }
+      const validationResults = looks.map((look) => {
+        const wellFormed =
+          !!look &&
+          Array.isArray(look.item_ids) &&
+          look.item_ids.every((id) => typeof id === "string" && candidateIds.has(id)) &&
+          typeof look.name === "string" &&
+          typeof look.rationale === "string";
 
-      const distinct = passed.length >= 2 ? looksAreDistinct(passed) : true;
-      if (!distinct) reasons.push("looks_not_distinct");
+        const result = wellFormed
+          ? validateLook(look, candidates, data.temp_c, {
+              maxFormalityVariance: relaxed ? 4 : 3,
+            })
+          : ({ ok: false, reason: "hallucinated_id" } as const);
 
-      const allLooksValid =
-        looks.length >= 3 && passed.length === looks.length && distinct && passed.length >= 3;
+        return {
+          look_name: typeof look?.name === "string" ? look.name : null,
+          item_ids: Array.isArray(look?.item_ids) ? look.item_ids : [],
+          result,
+        };
+      });
+      console.log("[suggestOutfit] Validation results:", validationResults);
 
-      if (allLooksValid) {
-        validLooks = passed;
-        break;
-      }
+      const distinctResult = looks.length >= 2 ? looksAreDistinct(looks) : true;
+      console.log("[suggestOutfit] Distinct check:", distinctResult);
+
+      const candidateSummary = buildCandidateSummary(candidates);
+      console.log("[suggestOutfit] Candidates available:", candidateSummary);
+
+      const reasons = validationResults
+        .filter((entry) => !entry.result.ok)
+        .map((entry) => entry.result.reason);
 
       if (looks.length === 0) {
         reasons.push("no_looks_returned");
@@ -574,48 +582,67 @@ export const suggestOutfit = createServerFn({ method: "POST" })
         reasons.push(`returned_${looks.length}_looks`);
       }
 
-      // Second pass — accept what we have
-      if (attempt === 1) {
-        // If distinctness failed, drop the offending overlapping look
-        if (!distinct && passed.length > 1) {
-          const kept: LookProposal[] = [];
-          for (const candidate of passed) {
-            if (
-              kept.every((k) => {
-                const overlap = candidate.item_ids.filter((id) =>
-                  k.item_ids.includes(id),
-                ).length;
-                const maxLen = Math.max(
-                  candidate.item_ids.length,
-                  k.item_ids.length,
-                );
-                return maxLen - overlap >= 2;
-              })
-            ) {
-              kept.push(candidate);
-            }
-          }
-          validLooks = kept;
-        } else {
-          validLooks = passed;
-        }
+      if (!distinctResult && validationResults.some((entry) => entry.result.ok)) {
+        reasons.push("looks_not_distinct");
+      }
+
+      await persistStylingLog({
+        userId,
+        batchId: batch_id,
+        occasion: data.occasion,
+        tempC: data.temp_c,
+        mood: data.mood,
+        archetype,
+        wardrobeSize: items.length,
+        candidates,
+        reasoning: parsed.reasoning,
+        rawResponse: parsed,
+        validationResults,
+        failureReasons: reasons,
+        attempt: attempt + 1,
+        mode: relaxed ? "relaxed" : "strict",
+      });
+
+      const strictlyValidLooks = looks.filter((_, idx) => validationResults[idx]?.result.ok);
+      const distinctValidLooks =
+        strictlyValidLooks.length >= 2
+          ? pickMostDistinctSubset(strictlyValidLooks, 3)
+          : strictlyValidLooks;
+
+      if (distinctValidLooks.length >= 3) {
+        validLooks = distinctValidLooks.slice(0, 3);
         break;
       }
 
-      // First pass failed — set up retry feedback
+      if (distinctValidLooks.length >= 2) {
+        validLooks = distinctValidLooks;
+        break;
+      }
+
+      if (strictlyValidLooks.length === 1) {
+        validLooks = strictlyValidLooks;
+        break;
+      }
+
+      console.error("[suggestOutfit] All looks invalid. Reasons:", reasons);
+
+      if (attempt === 1) {
+        lastReasons = reasons.length ? reasons : ["incomplete_output"];
+        break;
+      }
+
       lastReasons = reasons.length ? reasons : ["incomplete_output"];
     }
 
     if (validLooks.length === 0) {
       return {
         error: "composition_failed" as const,
-        message: "Couldn't compose valid looks. Try again.",
-        debug: lastReasons.join(", "),
+        reasons: lastReasons,
+        message: `AI composition issue: ${lastReasons[0] ?? "unknown"}. Your wardrobe may need more variety.`,
       };
     }
 
     // 7. Insert looks + log reasoning
-    const batch_id = crypto.randomUUID();
     const rows = validLooks.map((look, idx) => ({
       user_id: userId,
       item_ids: look.item_ids,
@@ -627,6 +654,7 @@ export const suggestOutfit = createServerFn({ method: "POST" })
         mood: data.mood ?? null,
         strategy: look.strategy ?? null,
         archetype,
+        note: validLooks.length < 3 ? "low_variety" : null,
       },
       batch_id,
       look_sequence: idx + 1,
@@ -638,26 +666,12 @@ export const suggestOutfit = createServerFn({ method: "POST" })
       .select();
     if (insertErr) throw insertErr;
 
-    // Diagnostic log — best-effort, never blocks the response
-    if (payload?.reasoning) {
-      void supabase.from("styling_logs" as any).insert({
-        user_id: userId,
-        batch_id,
-        occasion: data.occasion,
-        temp_c: Math.round(data.temp_c),
-        mood: data.mood ?? null,
-        archetype,
-        reasoning: payload.reasoning,
-        wardrobe_size: items.length,
-        candidate_size: candidates.length,
-      });
-    }
-
     return {
       ok: true as const,
       batch_id,
       looks: inserted ?? [],
       requested_count: 3,
       returned_count: validLooks.length,
+      note: validLooks.length < 3 ? "low_variety" : null,
     };
   });
