@@ -631,7 +631,7 @@ function UploadSheet({
         <input
           ref={cameraInputRef}
           type="file"
-          accept="image/*"
+          accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
           capture="environment"
           className="hidden"
           onChange={(e) => {
@@ -642,7 +642,7 @@ function UploadSheet({
         <input
           ref={galleryInputRef}
           type="file"
-          accept="image/*"
+          accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
           className="hidden"
           onChange={(e) => {
             const f = e.target.files?.[0];
@@ -652,7 +652,7 @@ function UploadSheet({
         <input
           ref={dropInputRef}
           type="file"
-          accept="image/*"
+          accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
           className="hidden"
           onChange={(e) => {
             const f = e.target.files?.[0];
