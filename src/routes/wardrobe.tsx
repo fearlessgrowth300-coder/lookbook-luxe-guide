@@ -262,12 +262,19 @@ function Tile({
   onToggleSelect: () => void;
 }) {
   const stagger = Math.min(index, 17) * 0.035;
-  const enhanced = item.enhanced_path || item.thumbnail_path;
-  const imgUrl = enhanced
-    ? supabase.storage.from(item.thumbnail_path ? "wardrobe-thumbs" : "wardrobe-enhanced").getPublicUrl(enhanced).data.publicUrl
+  const thumbUrl = item.thumbnail_path
+    ? supabase.storage.from("wardrobe-thumbs").getPublicUrl(item.thumbnail_path).data.publicUrl
     : null;
+  const enhancedUrl = item.enhanced_path
+    ? supabase.storage.from("wardrobe-enhanced").getPublicUrl(item.enhanced_path).data.publicUrl
+    : null;
+  const [imgUrl, setImgUrl] = useState<string | null>(enhancedUrl ?? thumbUrl);
 
   const longPressTimer = useRef<number | null>(null);
+
+  useEffect(() => {
+    setImgUrl(enhancedUrl ?? thumbUrl);
+  }, [enhancedUrl, thumbUrl]);
 
   return (
     <motion.div
@@ -303,6 +310,14 @@ function Tile({
           src={imgUrl}
           alt={item.subcategory || "Wardrobe item"}
           loading="lazy"
+          onError={() => {
+            if (imgUrl !== thumbUrl && thumbUrl) {
+              setImgUrl(thumbUrl);
+              return;
+            }
+
+            setImgUrl(null);
+          }}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.42, ease: ease.luxury }}
@@ -426,6 +441,7 @@ function UploadSheet({ onClose }: { onClose: () => void }) {
       const message = e instanceof Error ? e.message : "Upload failed";
       toast(message);
     } finally {
+      if (inputRef.current) inputRef.current.value = "";
       setUploading(false);
     }
   };
@@ -486,7 +502,8 @@ function UploadSheet({ onClose }: { onClose: () => void }) {
           <input
             ref={inputRef}
             type="file"
-            accept="image/jpeg,image/png,image/heic"
+            accept="image/*"
+            capture="environment"
             className="hidden"
             onChange={(e) => {
               const f = e.target.files?.[0];
@@ -501,7 +518,7 @@ function UploadSheet({ onClose }: { onClose: () => void }) {
             <>
               <UploadIcon className="h-8 w-8 text-ink" strokeWidth={1} />
               <p className="mt-4 font-display text-[20px] font-light text-graphite">
-                Drop a photo, or tap to browse
+                Take a photo, or tap to browse
               </p>
               <p className="mt-2 font-mono text-[11px] uppercase tracking-[0.16em] text-ink">
                 JPG · PNG · HEIC · 10 MB max
