@@ -10,7 +10,7 @@ import { useAuth } from "@/lib/auth";
 import { useUI } from "@/lib/store";
 import { supabase } from "@/integrations/supabase/client";
 import { ease, dur, tap } from "@/lib/motion";
-import { generateThumbnail, generatePlaceholder } from "@/lib/thumbnail";
+import { generateThumbnail, generatePlaceholder, downscaleForUpload } from "@/lib/thumbnail";
 import {
   mockRemoveBackground,
   mockAnalyzeGarment,
@@ -368,20 +368,21 @@ function UploadSheet({ onClose }: { onClose: () => void }) {
     }
     setUploading(true);
     try {
-      const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
       const itemId = crypto.randomUUID();
-      const rawPath = `${user.id}/${itemId}.${ext}`;
+      // Always re-encode to JPEG so HEIC and oversized phone photos work reliably.
+      const rawPath = `${user.id}/${itemId}.jpg`;
       const thumbPath = `${user.id}/${itemId}.jpg`;
 
-      // Generate thumbnail + placeholder client-side
-      const [thumb, placeholder] = await Promise.all([
+      // Generate downscaled raw + thumbnail + placeholder client-side, in parallel.
+      const [rawBlob, thumb, placeholder] = await Promise.all([
+        downscaleForUpload(file),
         generateThumbnail(file),
         generatePlaceholder(file),
       ]);
 
       // Upload raw + thumb in parallel
       const [rawUp, thumbUp] = await Promise.all([
-        supabase.storage.from("wardrobe-raw").upload(rawPath, file, { contentType: file.type }),
+        supabase.storage.from("wardrobe-raw").upload(rawPath, rawBlob, { contentType: "image/jpeg" }),
         supabase.storage.from("wardrobe-thumbs").upload(thumbPath, thumb, { contentType: "image/jpeg" }),
       ]);
       if (rawUp.error) throw rawUp.error;
