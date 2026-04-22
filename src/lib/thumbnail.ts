@@ -135,12 +135,7 @@ function drawContained(
 
   try {
     ctx.drawImage(source, dx, dy, drawWidth, drawHeight);
-    return {
-      source: canvas,
-      width: targetWidth,
-      height: targetHeight,
-      dispose: () => undefined,
-    } as never;
+    return canvas;
   } catch {
     throw new Error(
       "This photo loaded, but your browser could not draw it for upload. Try taking it again or pick it from your gallery.",
@@ -165,9 +160,15 @@ function drawCenteredCrop(
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Canvas 2D context unavailable");
 
-  ctx.fillStyle = "#EAE4D9";
-  ctx.fillRect(0, 0, size, size);
-  ctx.drawImage(source, sx, sy, side, side, 0, 0, size, size);
+  try {
+    ctx.fillStyle = "#EAE4D9";
+    ctx.fillRect(0, 0, size, size);
+    ctx.drawImage(source, sx, sy, side, side, 0, 0, size, size);
+  } catch {
+    throw new Error(
+      "This photo loaded, but your browser could not crop it for upload. Try taking it again or pick it from your gallery.",
+    );
+  }
 
   return canvas;
 }
