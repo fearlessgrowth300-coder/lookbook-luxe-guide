@@ -19,7 +19,12 @@ function loadModule() {
   return removeFnPromise;
 }
 
-const MODEL: "isnet_quint8" = "isnet_quint8";
+// Use the full-precision isnet model. The quint8 variant is ~5x faster but
+// frequently keeps backdrop fabric, shoe trees, hangers, etc. that touch the
+// garment — visible in composed outfit cards. Full isnet is much sharper at
+// isolating the actual subject. Initial download is larger (~40MB) but cached
+// in IndexedDB after the first call.
+const MODEL: "isnet" = "isnet";
 
 /**
  * Pre-fetch the model + WASM so the user's first real upload doesn't pay the
