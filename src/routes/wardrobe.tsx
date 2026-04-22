@@ -1043,6 +1043,22 @@ function UploadSheet({
               What is this?
             </h3>
 
+            {bgFirstRun && (
+              <div className="mt-4 flex items-start justify-between gap-3 border-l-2 border-graphite/40 bg-linen/60 px-4 py-3">
+                <p className="font-mono text-[10.5px] uppercase leading-relaxed tracking-[0.12em] text-ink">
+                  First upload downloads image tools (one-time, ~15 MB).
+                  Future uploads are instant.
+                </p>
+                <button
+                  onClick={() => setBgFirstRun(false)}
+                  className="shrink-0 font-mono text-[10px] uppercase tracking-[0.16em] text-ink/70 hover:text-graphite"
+                  aria-label="Dismiss"
+                >
+                  ×
+                </button>
+              </div>
+            )}
+
             <div className="mt-4 grid grid-cols-2 gap-3">
               {CATEGORY_OPTIONS.slice(0, 6).map(({ id, label }) => {
                 const active = pickedCategory === id;
