@@ -11,7 +11,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { ease, dur, tap } from "@/lib/motion";
 import {
   mockGenerateDailyPrompt,
-  mockSuggestOutfit,
   type Occasion,
 } from "@/server/mock-ai";
 
