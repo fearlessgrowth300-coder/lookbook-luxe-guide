@@ -14,7 +14,162 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      daily_prompts: {
+        Row: {
+          context: Json | null
+          id: string
+          prompt_date: string
+          prompt_text: string
+          user_id: string
+        }
+        Insert: {
+          context?: Json | null
+          id?: string
+          prompt_date: string
+          prompt_text: string
+          user_id: string
+        }
+        Update: {
+          context?: Json | null
+          id?: string
+          prompt_date?: string
+          prompt_text?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      outfits: {
+        Row: {
+          context: Json | null
+          generated_at: string | null
+          id: string
+          item_ids: string[]
+          occasion: string | null
+          rationale: string | null
+          saved: boolean | null
+          user_id: string
+          user_rating: number | null
+          worn_on: string | null
+        }
+        Insert: {
+          context?: Json | null
+          generated_at?: string | null
+          id?: string
+          item_ids: string[]
+          occasion?: string | null
+          rationale?: string | null
+          saved?: boolean | null
+          user_id: string
+          user_rating?: number | null
+          worn_on?: string | null
+        }
+        Update: {
+          context?: Json | null
+          generated_at?: string | null
+          id?: string
+          item_ids?: string[]
+          occasion?: string | null
+          rationale?: string | null
+          saved?: boolean | null
+          user_id?: string
+          user_rating?: number | null
+          worn_on?: string | null
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          avoid_colors: string[] | null
+          climate: string | null
+          created_at: string | null
+          display_name: string | null
+          favorite_colors: string[] | null
+          id: string
+          style_archetype: string | null
+        }
+        Insert: {
+          avoid_colors?: string[] | null
+          climate?: string | null
+          created_at?: string | null
+          display_name?: string | null
+          favorite_colors?: string[] | null
+          id: string
+          style_archetype?: string | null
+        }
+        Update: {
+          avoid_colors?: string[] | null
+          climate?: string | null
+          created_at?: string | null
+          display_name?: string | null
+          favorite_colors?: string[] | null
+          id?: string
+          style_archetype?: string | null
+        }
+        Relationships: []
+      }
+      wardrobe_items: {
+        Row: {
+          archived: boolean | null
+          category: string | null
+          color_primary: string | null
+          color_secondary: string | null
+          created_at: string | null
+          enhanced_path: string | null
+          formality_score: number | null
+          id: string
+          last_worn: string | null
+          material: string | null
+          placeholder: string | null
+          raw_path: string
+          season: string[] | null
+          subcategory: string | null
+          tags: string[] | null
+          thumbnail_path: string | null
+          user_id: string
+          wear_count: number | null
+        }
+        Insert: {
+          archived?: boolean | null
+          category?: string | null
+          color_primary?: string | null
+          color_secondary?: string | null
+          created_at?: string | null
+          enhanced_path?: string | null
+          formality_score?: number | null
+          id?: string
+          last_worn?: string | null
+          material?: string | null
+          placeholder?: string | null
+          raw_path: string
+          season?: string[] | null
+          subcategory?: string | null
+          tags?: string[] | null
+          thumbnail_path?: string | null
+          user_id: string
+          wear_count?: number | null
+        }
+        Update: {
+          archived?: boolean | null
+          category?: string | null
+          color_primary?: string | null
+          color_secondary?: string | null
+          created_at?: string | null
+          enhanced_path?: string | null
+          formality_score?: number | null
+          id?: string
+          last_worn?: string | null
+          material?: string | null
+          placeholder?: string | null
+          raw_path?: string
+          season?: string[] | null
+          subcategory?: string | null
+          tags?: string[] | null
+          thumbnail_path?: string | null
+          user_id?: string
+          wear_count?: number | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
