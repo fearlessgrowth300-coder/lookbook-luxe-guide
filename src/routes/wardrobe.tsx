@@ -173,6 +173,12 @@ function WardrobePage() {
 
   const categoryCount = new Set(items.map((i) => i.category).filter(Boolean)).size;
 
+  const miscategorized = useMemo(
+    () => items.filter((i) => i.subcategory && MOCK_SUBCATEGORIES.has(i.subcategory.toLowerCase())),
+    [items],
+  );
+  const showBanner = !bannerDismissed && miscategorized.length > 0;
+
   const archiveMutation = useMutation({
     mutationFn: async (ids: string[]) => {
       const { error } = await supabase
