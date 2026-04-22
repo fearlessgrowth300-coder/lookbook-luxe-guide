@@ -709,7 +709,7 @@ function UploadSheet({
             </div>
 
             <p className="mt-6 text-center font-mono text-[10px] uppercase tracking-[0.16em] text-ink">
-              JPG · PNG · HEIC · 10 MB max
+              JPG · PNG · WEBP · HEIC · 10 MB MAX
             </p>
 
             {errorMsg && (
