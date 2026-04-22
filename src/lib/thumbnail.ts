@@ -15,18 +15,45 @@ type DecodedImage = {
   dispose: () => void;
 };
 
+type ImageFormat = "jpeg" | "png" | "webp" | "gif" | "heic" | "heif" | "avif" | "unknown";
+
+async function sniffImageFormat(file: Blob): Promise<ImageFormat> {
+  const bytes = new Uint8Array(await file.slice(0, 32).arrayBuffer());
+  const ascii = new TextDecoder("ascii").decode(bytes);
+
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "jpeg";
+  if (
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47
+  ) {
+    return "png";
+  }
+  if (ascii.startsWith("GIF8")) return "gif";
+  if (ascii.startsWith("RIFF") && ascii.slice(8, 12) === "WEBP") return "webp";
+
+  const brand = ascii.slice(8, 12).toLowerCase();
+  if (["heic", "heix", "hevc", "hevx"].includes(brand)) return "heic";
+  if (["heif", "heim", "heis", "hevm", "hevs"].includes(brand)) return "heif";
+  if (brand === "avif") return "avif";
+
+  return "unknown";
+}
+
 async function normalizeInputFile(file: File): Promise<File | Blob> {
   const lowerName = file.name.toLowerCase();
-  const maybeHeic =
+  const hintedHeic =
     file.type === "image/heic" ||
     file.type === "image/heif" ||
-    file.type === "" ||
     lowerName.endsWith(".heic") ||
     lowerName.endsWith(".heif");
+  const sniffedFormat = await sniffImageFormat(file);
+  const shouldConvert = hintedHeic || sniffedFormat === "heic" || sniffedFormat === "heif";
 
-  if (!maybeHeic) return file;
+  if (!shouldConvert) return file;
 
-  const confirmedHeic = await isHeic(file).catch(() => true);
+  const confirmedHeic = await isHeic(file).catch(() => sniffedFormat === "heic" || sniffedFormat === "heif");
   if (!confirmedHeic) return file;
 
   try {
@@ -58,6 +85,20 @@ function blobToDataUrl(blob: Blob): Promise<string> {
     reader.onerror = () => reject(new Error("Image decode failed"));
     reader.readAsDataURL(blob);
   });
+}
+
+async function blobToChunkedDataUrl(blob: Blob): Promise<string> {
+  const buffer = await blob.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 8192;
+  let binary = "";
+
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
+    binary += String.fromCharCode(...chunk);
+  }
+
+  return `data:${blob.type || "image/jpeg"};base64,${btoa(binary)}`;
 }
 
 function canvasToBlob(
@@ -138,7 +179,22 @@ async function decodeImageSource(file: File): Promise<DecodedImage> {
       };
     }
   } catch {
-    // Fall through to ImageBitmap decode as a final fallback.
+    try {
+      const image = await loadHtmlImage(await blobToChunkedDataUrl(normalizedFile));
+      const width = image.naturalWidth || image.width;
+      const height = image.naturalHeight || image.height;
+
+      if (width > 0 && height > 0) {
+        return {
+          source: image,
+          width,
+          height,
+          dispose: () => undefined,
+        };
+      }
+    } catch {
+      // Fall through to ImageBitmap decode as a final fallback.
+    }
   }
 
   try {
