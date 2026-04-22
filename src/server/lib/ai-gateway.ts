@@ -70,7 +70,7 @@ export async function chatCompletion(
         model: opts.model,
         messages: opts.messages,
         ...(opts.temperature !== undefined && { temperature: opts.temperature }),
-        ...(opts.max_tokens !== undefined && { max_tokens: opts.max_tokens }),
+        ...(opts.max_tokens !== undefined && { max_completion_tokens: opts.max_tokens }),
         ...(opts.json && { response_format: { type: "json_object" } }),
       }),
       signal: controller.signal,
