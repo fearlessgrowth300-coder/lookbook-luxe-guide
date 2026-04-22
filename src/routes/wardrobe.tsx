@@ -838,13 +838,14 @@ function UploadSheet({
           </button>
         </div>
 
-        {/* Hidden inputs */}
+        {/* Hidden inputs — kept off-screen rather than display:none so iOS still
+            registers the programmatic click() from the visible buttons. */}
         <input
           ref={cameraInputRef}
           type="file"
-          accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+          accept="image/*"
           capture="environment"
-          className="hidden"
+          style={{ position: "absolute", opacity: 0, pointerEvents: "none", width: 1, height: 1 }}
           onChange={(e) => {
             const f = e.target.files?.[0];
             if (f) pickFile(f);
@@ -854,7 +855,7 @@ function UploadSheet({
           ref={galleryInputRef}
           type="file"
           accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
-          className="hidden"
+          style={{ position: "absolute", opacity: 0, pointerEvents: "none", width: 1, height: 1 }}
           onChange={(e) => {
             const f = e.target.files?.[0];
             if (f) pickFile(f);
@@ -864,7 +865,7 @@ function UploadSheet({
           ref={dropInputRef}
           type="file"
           accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
-          className="hidden"
+          style={{ position: "absolute", opacity: 0, pointerEvents: "none", width: 1, height: 1 }}
           onChange={(e) => {
             const f = e.target.files?.[0];
             if (f) pickFile(f);
