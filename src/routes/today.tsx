@@ -1,8 +1,9 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { motion } from "framer-motion";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { motion, AnimatePresence } from "framer-motion";
+import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { Cloud, Calendar } from "lucide-react";
+import { toast } from "sonner";
 import { Shell } from "@/components/Shell";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { useAuth } from "@/lib/auth";
@@ -11,6 +12,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { ease, dur, tap } from "@/lib/motion";
 import {
   mockGenerateDailyPrompt,
+  mockSuggestOutfits,
   type Occasion,
 } from "@/server/mock-ai";
 
@@ -29,11 +31,23 @@ const PRIMARY_OCCASIONS: { id: Occasion; label: string }[] = [
   { id: "evening", label: "Evening" },
 ];
 
+const ALL_OCCASIONS: { id: Occasion; label: string }[] = [
+  { id: "office", label: "Office" },
+  { id: "casual", label: "Casual" },
+  { id: "evening", label: "Evening" },
+  { id: "athletic", label: "Athletic" },
+  { id: "formal", label: "Formal" },
+  { id: "travel", label: "Travel" },
+];
+
 function TodayPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { mood, setMood } = useUI();
   const [moreOpen, setMoreOpen] = useState(false);
+  const [selected, setSelected] = useState<Occasion | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [shake, setShake] = useState(0);
 
   const today = useMemo(() => new Date(), []);
   const dateLabel = useMemo(
@@ -60,7 +74,6 @@ function TodayPage() {
         .maybeSingle();
       if (existing) return existing;
 
-      // Mock weather + archetype
       const { data: profile } = await supabase
         .from("profiles")
         .select("style_archetype")
@@ -96,7 +109,7 @@ function TodayPage() {
     queryFn: async () => {
       const { data } = await supabase
         .from("outfits")
-        .select("id, occasion, rationale, generated_at")
+        .select("id, occasion, rationale, generated_at, batch_id")
         .eq("user_id", user!.id)
         .order("generated_at", { ascending: false })
         .limit(5);
@@ -104,14 +117,14 @@ function TodayPage() {
     },
   });
 
-  // Wardrobe count for occasion gating
+  // Wardrobe for occasion gating + generation
   const wardrobeQuery = useQuery({
     queryKey: ["wardrobe-count", user?.id],
     enabled: !!user,
     queryFn: async () => {
       const { data } = await supabase
         .from("wardrobe_items")
-        .select("id, formality_score, category")
+        .select("id, formality_score, category, subcategory")
         .eq("user_id", user!.id)
         .eq("archived", false);
       return data ?? [];
@@ -121,23 +134,77 @@ function TodayPage() {
   const occasionViable = (occ: Occasion) => {
     const items = wardrobeQuery.data ?? [];
     const ranges: Record<Occasion, [number, number]> = {
-      office: [7, 10],
+      office: [6, 9],
       casual: [3, 6],
-      evening: [8, 10],
+      evening: [7, 10],
       athletic: [1, 3],
       formal: [9, 10],
-      travel: [1, 10],
+      travel: [3, 8],
     };
     const [lo, hi] = ranges[occ];
-    return items.filter((i) => i.formality_score && i.formality_score >= lo && i.formality_score <= hi).length >= 3;
+    return (
+      items.filter(
+        (i) => i.formality_score && i.formality_score >= lo && i.formality_score <= hi,
+      ).length >= 3
+    );
   };
 
-  const generateMutation = useMutation({
-    mutationFn: async (occasion: Occasion) => occasion,
-    onSuccess: (occasion) => {
-      navigate({ to: "/today/looks", search: { occasion } });
-    },
-  });
+  function togglePill(id: Occasion) {
+    setSelected((cur) => (cur === id ? null : id));
+  }
+
+  async function handleGenerate() {
+    if (!selected || !user || generating) return;
+    setGenerating(true);
+    try {
+      const wardrobe = wardrobeQuery.data ?? [];
+      if (wardrobe.length < 5) {
+        toast("Add at least 5 pieces to compose looks.");
+        return;
+      }
+      const candidates = wardrobe.map((i) => ({
+        id: i.id,
+        category: i.category,
+        subcategory: i.subcategory,
+        formality_score: i.formality_score,
+      }));
+
+      const suggestions = await mockSuggestOutfits({
+        user_id: user.id,
+        occasion: selected,
+        temp_c: 14,
+        candidates,
+        count: 3,
+      });
+
+      if (!suggestions.length) {
+        toast(`Add a few more pieces to compose ${selected} looks.`);
+        return;
+      }
+
+      const batchId = crypto.randomUUID();
+      const rows = suggestions.map((s, i) => ({
+        user_id: user.id,
+        item_ids: s.item_ids,
+        occasion: selected,
+        rationale: s.rationale,
+        name: s.name,
+        batch_id: batchId,
+        look_sequence: i + 1,
+        context: { temp_c: 14, mood },
+      }));
+      const { error } = await supabase.from("outfits").insert(rows);
+      if (error) throw error;
+
+      navigate({ to: "/today/looks", search: { batch: batchId } });
+    } catch (e) {
+      console.error(e);
+      setShake((s) => s + 1);
+      toast("Couldn't compose looks. Try again.");
+    } finally {
+      setGenerating(false);
+    }
+  }
 
   const promptText = promptQuery.data?.prompt_text ?? "";
   const words = promptText.split(" ");
@@ -178,7 +245,7 @@ function TodayPage() {
             )}
           </h1>
 
-          {/* Occasion pills */}
+          {/* Occasion pills (selectable) */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -186,17 +253,32 @@ function TodayPage() {
             className="mt-12 flex flex-wrap items-center gap-3"
           >
             {PRIMARY_OCCASIONS.map(({ id, label }) => {
-              const viable = (wardrobeQuery.data?.length ?? 0) === 0 || occasionViable(id);
-              const disabled = !viable || generateMutation.isPending;
+              const viable =
+                (wardrobeQuery.data?.length ?? 0) === 0 || occasionViable(id);
+              const isSelected = selected === id;
+              const isDimmed = selected !== null && !isSelected;
               return (
                 <motion.button
                   key={id}
                   {...tap}
-                  disabled={disabled}
-                  onClick={() => generateMutation.mutate(id)}
-                  title={!viable ? `Add more pieces to unlock ${label.toLowerCase()} looks.` : undefined}
-                  className="group h-10 rounded-full border border-ink px-6 text-[15px] text-graphite transition-colors hover:bg-graphite hover:text-bone disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-graphite"
-                  style={{ transitionDuration: "220ms", transitionTimingFunction: "cubic-bezier(0.4,0,0.2,1)" }}
+                  disabled={!viable || generating}
+                  onClick={() => togglePill(id)}
+                  title={
+                    !viable
+                      ? `Add more pieces to unlock ${label.toLowerCase()} looks.`
+                      : undefined
+                  }
+                  animate={{ opacity: isDimmed ? 0.5 : 1 }}
+                  transition={{ duration: 0.22, ease: ease.tactile }}
+                  className={`group h-10 rounded-full border border-ink px-6 text-[15px] transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                    isSelected
+                      ? "bg-graphite text-bone"
+                      : "text-graphite hover:bg-graphite hover:text-bone"
+                  }`}
+                  style={{
+                    transitionDuration: "220ms",
+                    transitionTimingFunction: "cubic-bezier(0.4,0,0.2,1)",
+                  }}
                 >
                   {label}
                 </motion.button>
@@ -210,11 +292,41 @@ function TodayPage() {
             </button>
           </motion.div>
 
-          {generateMutation.isPending && (
-            <p className="mt-6 font-mono text-[11px] uppercase tracking-[0.2em] text-ink">
-              Composing…
-            </p>
-          )}
+          {/* Generate button — appears only when an occasion is selected */}
+          <AnimatePresence>
+            {selected && (
+              <motion.div
+                key="generate"
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 8 }}
+                transition={{ duration: 0.32, ease: ease.luxury, delay: 0.12 }}
+                className="mt-10 flex justify-center"
+              >
+                <motion.button
+                  key={shake}
+                  onClick={handleGenerate}
+                  disabled={generating}
+                  animate={
+                    shake > 0
+                      ? { x: [-4, 4, -4, 4, 0] }
+                      : { scale: 1 }
+                  }
+                  transition={{ duration: 0.4, ease: ease.tactile }}
+                  whileTap={{ scale: 0.98 }}
+                  className="relative h-14 w-full max-w-[360px] bg-graphite text-bone transition-colors hover:bg-noir disabled:opacity-70"
+                  style={{
+                    fontFamily: "var(--font-display, Fraunces), serif",
+                    fontSize: "17px",
+                    letterSpacing: "0.04em",
+                  }}
+                >
+                  {generating ? <DriftDots /> : "Generate three looks"}
+                </motion.button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           {(wardrobeQuery.data?.length ?? 0) === 0 && (
             <p className="mt-6 text-[14px] text-ink">
               Your wardrobe is empty.{" "}
@@ -300,10 +412,11 @@ function TodayPage() {
       {/* More occasions modal */}
       {moreOpen && (
         <MoreOccasionsModal
+          currentSelected={selected}
           onClose={() => setMoreOpen(false)}
           onPick={(occ) => {
             setMoreOpen(false);
-            generateMutation.mutate(occ);
+            setSelected(occ);
           }}
         />
       )}
@@ -322,21 +435,35 @@ function Cell({ icon, label }: { icon: React.ReactNode; label: string }) {
   );
 }
 
+function DriftDots() {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      {[0, 1, 2].map((i) => (
+        <motion.span
+          key={i}
+          className="block h-1.5 w-1.5 rounded-full bg-bone"
+          animate={{ opacity: [0.3, 1, 0.3], y: [0, -2, 0] }}
+          transition={{
+            duration: 1.2,
+            repeat: Infinity,
+            delay: i * 0.16,
+            ease: ease.drift,
+          }}
+        />
+      ))}
+    </span>
+  );
+}
+
 function MoreOccasionsModal({
+  currentSelected,
   onClose,
   onPick,
 }: {
+  currentSelected: Occasion | null;
   onClose: () => void;
   onPick: (o: Occasion) => void;
 }) {
-  const all: { id: Occasion; label: string }[] = [
-    { id: "office", label: "Office" },
-    { id: "casual", label: "Casual" },
-    { id: "evening", label: "Evening" },
-    { id: "athletic", label: "Athletic" },
-    { id: "formal", label: "Formal" },
-    { id: "travel", label: "Travel" },
-  ];
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -357,16 +484,23 @@ function MoreOccasionsModal({
           Choose occasion
         </p>
         <div className="mt-6 grid grid-cols-2 gap-3">
-          {all.map(({ id, label }) => (
-            <motion.button
-              key={id}
-              {...tap}
-              onClick={() => onPick(id)}
-              className="h-12 border border-ink text-[14px] text-graphite transition-colors hover:bg-graphite hover:text-bone"
-            >
-              {label}
-            </motion.button>
-          ))}
+          {ALL_OCCASIONS.map(({ id, label }) => {
+            const isSelected = currentSelected === id;
+            return (
+              <motion.button
+                key={id}
+                {...tap}
+                onClick={() => onPick(id)}
+                className={`h-12 border border-ink text-[14px] transition-colors ${
+                  isSelected
+                    ? "bg-graphite text-bone"
+                    : "text-graphite hover:bg-graphite hover:text-bone"
+                }`}
+              >
+                {label}
+              </motion.button>
+            );
+          })}
         </div>
       </motion.div>
     </motion.div>
