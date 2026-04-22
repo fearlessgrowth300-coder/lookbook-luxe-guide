@@ -469,8 +469,24 @@ function UploadSheet({
 
   const uploading = stage !== "idle" && stage !== "done";
 
-  // Watch the wardrobe cache for the inserted item to gain its enhanced image
-  const wardrobe = qc.getQueryData<WardrobeItem[]>(["wardrobe", user?.id]);
+  // Watch the wardrobe cache reactively so the sheet auto-closes when enhancement completes.
+  const wardrobe = useQuery({
+    queryKey: ["wardrobe", user?.id],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("wardrobe_items")
+        .select(
+          "id, raw_path, enhanced_path, thumbnail_path, placeholder, category, subcategory, color_primary, formality_score",
+        )
+        .eq("user_id", user!.id)
+        .eq("archived", false)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as WardrobeItem[];
+    },
+  }).data;
+
   useEffect(() => {
     if (stage !== "enhancing" || !insertedItemIdRef.current) return;
     const item = wardrobe?.find((i) => i.id === insertedItemIdRef.current);
@@ -480,6 +496,16 @@ function UploadSheet({
       return () => clearTimeout(t);
     }
   }, [wardrobe, stage, onClose]);
+
+  // Safety net: if enhancement never reports back, auto-close after 12s anyway.
+  useEffect(() => {
+    if (stage !== "enhancing") return;
+    const t = setTimeout(() => {
+      setStage("done");
+      setTimeout(() => onClose(), 600);
+    }, 12000);
+    return () => clearTimeout(t);
+  }, [stage, onClose]);
 
   const resetInputs = () => {
     if (cameraInputRef.current) cameraInputRef.current.value = "";
