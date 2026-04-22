@@ -615,23 +615,16 @@ function UploadSheet({
     },
   }).data;
 
+  // Pre-warm bg-removal as soon as the sheet opens — gives the user the
+  // best chance the model is downloaded by the time they confirm category.
   useEffect(() => {
-    if (stage !== "enhancing" || !insertedItemIdRef.current) return;
-    const item = wardrobe?.find((i) => i.id === insertedItemIdRef.current);
-    if (item?.enhanced_path) {
-      setStage("done");
-      const t = setTimeout(() => onClose(), 700);
-      return () => clearTimeout(t);
-    }
-  }, [wardrobe, stage, onClose]);
+    void warmBgRemoval();
+  }, []);
 
-  // Safety net: if enhancement never reports back, auto-close after 12s anyway.
+  // Auto-close the sheet shortly after stage flips to "done".
   useEffect(() => {
-    if (stage !== "enhancing") return;
-    const t = setTimeout(() => {
-      setStage("done");
-      setTimeout(() => onClose(), 600);
-    }, 12000);
+    if (stage !== "done") return;
+    const t = setTimeout(() => onClose(), 700);
     return () => clearTimeout(t);
   }, [stage, onClose]);
 
