@@ -202,29 +202,39 @@ function TodayPage() {
       if ("error" in result) {
         switch (result.error) {
           case "rate_limited":
-            toast("Daily limit reached. Resets at midnight.");
+            toast("Daily limit reached. Try again after midnight.");
             break;
           case "insufficient_wardrobe":
-            toast("Add more items to start composing looks.");
+            toast("Add at least 5 items to compose looks.");
             break;
           case "insufficient_for_occasion": {
-            const what = result.missing[0] ?? "items";
-            toast(
-              `Add a pair of ${selected}-appropriate ${what} to compose ${selected} looks.`,
-            );
+            const what = (result.missing ?? []).join(", ") || "items";
+            toast(`Add ${what} to compose ${selected} looks.`);
             break;
           }
-          case "composition_failed":
-            toast(
-              "Couldn't compose valid looks. Try adjusting mood or adding items.",
-            );
+          case "composition_failed": {
+            const reasons = "reasons" in result && Array.isArray(result.reasons)
+              ? result.reasons
+              : [];
+            if (reasons.includes("formality_variance")) {
+              toast(
+                "Your wardrobe has very mixed formality. Try adding a piece closer to 6-7 formality.",
+              );
+            } else if (reasons.includes("hallucinated_id")) {
+              toast("AI returned invalid items. Try again.");
+            } else {
+              toast(
+                result.message ?? "Something went wrong. Pull down to refresh and try again.",
+              );
+            }
             break;
+          }
           case "ai_unavailable":
             toast(result.message ?? "AI is busy. Try again in a moment.");
             break;
           case "llm_parse_failed":
           default:
-            toast("Something went wrong. Try again.");
+            toast("Something went wrong. Pull down to refresh and try again.");
         }
         setShake((s) => s + 1);
         return;

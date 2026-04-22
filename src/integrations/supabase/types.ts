@@ -143,12 +143,15 @@ export type Database = {
           batch_id: string | null
           candidate_size: number | null
           created_at: string
+          failure_reasons: string[] | null
           id: string
           mood: string | null
           occasion: string | null
+          raw_response: Json | null
           reasoning: Json | null
           temp_c: number | null
           user_id: string
+          validation_results: Json | null
           wardrobe_size: number | null
         }
         Insert: {
@@ -156,12 +159,15 @@ export type Database = {
           batch_id?: string | null
           candidate_size?: number | null
           created_at?: string
+          failure_reasons?: string[] | null
           id?: string
           mood?: string | null
           occasion?: string | null
+          raw_response?: Json | null
           reasoning?: Json | null
           temp_c?: number | null
           user_id: string
+          validation_results?: Json | null
           wardrobe_size?: number | null
         }
         Update: {
@@ -169,12 +175,15 @@ export type Database = {
           batch_id?: string | null
           candidate_size?: number | null
           created_at?: string
+          failure_reasons?: string[] | null
           id?: string
           mood?: string | null
           occasion?: string | null
+          raw_response?: Json | null
           reasoning?: Json | null
           temp_c?: number | null
           user_id?: string
+          validation_results?: Json | null
           wardrobe_size?: number | null
         }
         Relationships: []
