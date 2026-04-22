@@ -192,6 +192,7 @@ export async function mockGenerateDailyPrompt(input: {
 export interface OutfitSuggestion {
   item_ids: string[];
   rationale: string;
+  name: string;
 }
 
 export type Occasion =
@@ -202,32 +203,152 @@ export type Occasion =
   | "formal"
   | "travel";
 
+interface CandidateItem {
+  id: string;
+  category: string | null;
+  formality_score: number | null;
+}
+
 const RATIONALES: Record<Occasion, string[]> = {
   office: [
-    "The wool trousers anchor the look at a 7 — appropriate for client days, never stiff. The shirt does the rest.",
-    "Tailoring with give. Formality lands at 7, the loafer keeps it human.",
+    "Tailoring with give. Formality lands at 7 — right for client days, relaxed enough to walk home in.",
+    "The trousers anchor the look. The shirt does the rest. Quiet, considered.",
+    "A shape that reads serious without trying. Built for rooms that matter.",
+    "Structured shoulders, soft hand. The contradiction is the point.",
   ],
   casual: [
-    "Built around the shoes. Everything else recedes — that's the point.",
+    "Built around the shoes. Everything else recedes — that's the brief.",
     "Soft against structured. Reads relaxed without becoming careless.",
+    "Weekend tempo. Nothing here is asking for attention.",
+    "The kind of ease that takes effort. Just not visibly.",
   ],
   evening: [
-    "One loud note, the rest in shadow. Black absorbs, the silk catches light.",
+    "One loud note, the rest in shadow. The silk catches light.",
     "Column silhouette, single statement. Restraint is the luxury.",
+    "Black absorbs the room. You don't compete with it — you let it work.",
+    "Quiet drama. Texture over print, line over decoration.",
   ],
   athletic: [
     "Movement first, considered second. Function reading as form.",
     "Built to be worn hard. Quiet enough to stop for coffee in.",
+    "Performance pieces in a palette that won't fight your watch.",
   ],
   formal: [
-    "The room will be louder than the clothes. That's the brief.",
+    "The room will be louder than the clothes. That's the point.",
     "Architecture, not decoration. Every line earns its place.",
+    "Black tie translated into a softer dialect. Still serious.",
   ],
   travel: [
     "Wrinkle-resistant, layer-ready, one bag tested. The uniform.",
     "Two airports, three time zones — and you still look like yourself.",
+    "Engineered to survive the journey. Designed to land elegant.",
   ],
 };
+
+const NAMES: Record<Occasion, string[]> = {
+  office: [
+    "The Considered Monday",
+    "Soft Power",
+    "Quiet Authority",
+    "The Long Meeting",
+    "Studio Hours",
+    "Oxford & Wool",
+  ],
+  casual: [
+    "Slow Saturday",
+    "The Walk Home",
+    "Off-Duty",
+    "Coffee, then Nothing",
+    "The Easy One",
+  ],
+  evening: [
+    "After Hours",
+    "The Late Reservation",
+    "Low Light",
+    "Velvet Pretext",
+    "One Drink",
+  ],
+  athletic: ["Morning Loop", "The Reset", "Ground Floor"],
+  formal: ["The Address", "Black Tie, Softly", "Room of Strangers"],
+  travel: ["Transit", "The Long Route", "Two Cities"],
+};
+
+const FORMALITY_RANGES: Record<Occasion, [number, number]> = {
+  office: [6, 9],
+  casual: [3, 6],
+  evening: [7, 10],
+  athletic: [1, 3],
+  formal: [9, 10],
+  travel: [3, 8],
+};
+
+function pickFromCategory(
+  pool: CandidateItem[],
+  category: string,
+  range: [number, number],
+  excludeIds: Set<string>,
+): CandidateItem | null {
+  const matches = pool.filter(
+    (i) =>
+      i.category === category &&
+      !excludeIds.has(i.id) &&
+      (i.formality_score == null ||
+        (i.formality_score >= range[0] && i.formality_score <= range[1])),
+  );
+  if (!matches.length) return null;
+  return matches[Math.floor(Math.random() * matches.length)];
+}
+
+function composeOne(
+  pool: CandidateItem[],
+  occasion: Occasion,
+  used: Set<string>,
+): string[] | null {
+  const range = FORMALITY_RANGES[occasion];
+  const picked: CandidateItem[] = [];
+
+  // Either dress OR top+bottom
+  const dress = pickFromCategory(pool, "dress", range, used);
+  if (dress && Math.random() < 0.35) {
+    picked.push(dress);
+  } else {
+    const top = pickFromCategory(pool, "top", range, used);
+    const bottom = pickFromCategory(pool, "bottom", range, used);
+    if (!top || !bottom) {
+      // Fallback: take any item to satisfy minimum
+      if (top) picked.push(top);
+      if (bottom) picked.push(bottom);
+    } else {
+      picked.push(top, bottom);
+    }
+  }
+  const shoes = pickFromCategory(pool, "shoes", range, used);
+  if (shoes) picked.push(shoes);
+
+  if (picked.length < 2) return null;
+
+  const localUsed = new Set(picked.map((p) => p.id));
+  // Optional outerwear
+  const outer = pickFromCategory(pool, "outerwear", range, localUsed);
+  if (outer && Math.random() < 0.6) picked.push(outer);
+  localUsed.add(outer?.id ?? "");
+
+  // Optional accessory & bag
+  const acc = pickFromCategory(pool, "accessory", range, localUsed);
+  if (acc && Math.random() < 0.45) picked.push(acc);
+  if (acc) localUsed.add(acc.id);
+  const bag = pickFromCategory(pool, "bag", range, localUsed);
+  if (bag && Math.random() < 0.4) picked.push(bag);
+
+  return picked.map((p) => p.id);
+}
+
+function differsByAtLeast(a: string[], b: string[], n: number): boolean {
+  const setB = new Set(b);
+  const overlap = a.filter((x) => setB.has(x)).length;
+  const diff = Math.max(a.length, b.length) - overlap;
+  return diff >= n;
+}
 
 export async function mockSuggestOutfit(input: {
   user_id: string;
@@ -237,19 +358,62 @@ export async function mockSuggestOutfit(input: {
   seed_item_id?: string;
 }): Promise<OutfitSuggestion> {
   await delay();
-  // Pick 3–5 items from candidates (pretend the LLM composed a look).
-  const count = Math.min(
-    Math.max(3, input.candidate_item_ids.length),
-    5,
-  );
-  const shuffled = [...input.candidate_item_ids].sort(
-    () => Math.random() - 0.5,
-  );
+  const count = Math.min(Math.max(3, input.candidate_item_ids.length), 5);
+  const shuffled = [...input.candidate_item_ids].sort(() => Math.random() - 0.5);
   const item_ids = shuffled.slice(0, count);
   if (input.seed_item_id && !item_ids.includes(input.seed_item_id)) {
     item_ids[0] = input.seed_item_id;
   }
   const pool = RATIONALES[input.occasion];
-  const rationale = pool[Math.floor(Math.random() * pool.length)];
-  return { item_ids, rationale };
+  const namePool = NAMES[input.occasion];
+  return {
+    item_ids,
+    rationale: pool[Math.floor(Math.random() * pool.length)],
+    name: namePool[Math.floor(Math.random() * namePool.length)],
+  };
+}
+
+/**
+ * Generate up to N distinct outfits. Each outfit must differ from prior
+ * outfits by at least 2 items. Returns however many distinct looks the
+ * wardrobe can produce (1, 2, or 3).
+ */
+export async function mockSuggestOutfits(input: {
+  user_id: string;
+  occasion: Occasion;
+  temp_c: number;
+  candidates: CandidateItem[];
+  count: number;
+  exclude_signatures?: string[][]; // prior item_ids arrays to differ from
+}): Promise<OutfitSuggestion[]> {
+  await delay();
+  const results: OutfitSuggestion[] = [];
+  const ratPool = [...RATIONALES[input.occasion]].sort(() => Math.random() - 0.5);
+  const namePool = [...NAMES[input.occasion]].sort(() => Math.random() - 0.5);
+
+  const priorSigs = input.exclude_signatures ?? [];
+  let attempts = 0;
+  const maxAttempts = 60;
+
+  while (results.length < input.count && attempts < maxAttempts) {
+    attempts++;
+    const composed = composeOne(input.candidates, input.occasion, new Set());
+    if (!composed) break;
+
+    // Distinctness: differ from each accepted result and prior excludes by >= 2 items
+    const allCheck = [
+      ...results.map((r) => r.item_ids),
+      ...priorSigs,
+    ];
+    const ok = allCheck.every((other) => differsByAtLeast(composed, other, 2));
+    if (!ok) continue;
+
+    results.push({
+      item_ids: composed,
+      rationale: ratPool[results.length % ratPool.length],
+      name: namePool[results.length % namePool.length],
+    });
+  }
+
+  return results;
 }

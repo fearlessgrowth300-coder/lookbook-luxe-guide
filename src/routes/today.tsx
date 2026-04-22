@@ -11,7 +11,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { ease, dur, tap } from "@/lib/motion";
 import {
   mockGenerateDailyPrompt,
-  mockSuggestOutfit,
   type Occasion,
 } from "@/server/mock-ai";
 
@@ -134,30 +133,9 @@ function TodayPage() {
   };
 
   const generateMutation = useMutation({
-    mutationFn: async (occasion: Occasion) => {
-      const items = wardrobeQuery.data ?? [];
-      const result = await mockSuggestOutfit({
-        user_id: user!.id,
-        occasion,
-        temp_c: 14,
-        candidate_item_ids: items.map((i) => i.id),
-      });
-      const { data, error } = await supabase
-        .from("outfits")
-        .insert({
-          user_id: user!.id,
-          item_ids: result.item_ids,
-          occasion,
-          rationale: result.rationale,
-          context: { temp_c: 14, mood },
-        })
-        .select()
-        .single();
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: (outfit) => {
-      navigate({ to: "/outfit/$id", params: { id: outfit.id } });
+    mutationFn: async (occasion: Occasion) => occasion,
+    onSuccess: (occasion) => {
+      navigate({ to: "/today/looks", search: { occasion } });
     },
   });
 
