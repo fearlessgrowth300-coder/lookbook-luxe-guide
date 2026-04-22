@@ -799,7 +799,7 @@ function UploadSheet({
           className="hidden"
           onChange={(e) => {
             const f = e.target.files?.[0];
-            if (f) handleFile(f);
+            if (f) pickFile(f);
           }}
         />
         <input
@@ -809,7 +809,7 @@ function UploadSheet({
           className="hidden"
           onChange={(e) => {
             const f = e.target.files?.[0];
-            if (f) handleFile(f);
+            if (f) pickFile(f);
           }}
         />
         <input
@@ -819,11 +819,11 @@ function UploadSheet({
           className="hidden"
           onChange={(e) => {
             const f = e.target.files?.[0];
-            if (f) handleFile(f);
+            if (f) pickFile(f);
           }}
         />
 
-        {stage === "idle" && (
+        {stage === "idle" && !categorizing && (
           <>
             <div className="mt-8 grid grid-cols-2 gap-4">
               <motion.button
@@ -858,7 +858,7 @@ function UploadSheet({
                 e.preventDefault();
                 setDragOver(false);
                 const f = e.dataTransfer.files?.[0];
-                if (f) handleFile(f);
+                if (f) pickFile(f);
               }}
               onClick={() => dropInputRef.current?.click()}
               className={`mt-6 hidden h-40 cursor-pointer flex-col items-center justify-center border border-dashed transition-colors md:flex ${
@@ -879,6 +879,110 @@ function UploadSheet({
               <p className="mt-4 text-center font-mono text-[11px] text-noir">{errorMsg}</p>
             )}
           </>
+        )}
+
+        {/* Categorize step — user owns the label */}
+        {categorizing && pickedPreview && (
+          <div className="mt-6">
+            <div
+              className="flex items-center justify-center bg-linen"
+              style={{ height: "280px" }}
+            >
+              <img
+                src={pickedPreview}
+                alt="Selected"
+                className="h-full w-full object-contain"
+              />
+            </div>
+
+            <h3 className="mt-8 font-display text-[24px] font-light text-graphite">
+              What is this?
+            </h3>
+
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              {CATEGORY_OPTIONS.slice(0, 6).map(({ id, label }) => {
+                const active = pickedCategory === id;
+                return (
+                  <motion.button
+                    {...tap}
+                    key={id}
+                    onClick={() => setPickedCategory(id)}
+                    className={`h-[72px] border text-[13px] uppercase tracking-[0.12em] ${
+                      active
+                        ? "border-graphite bg-graphite text-bone"
+                        : "border-ink/40 bg-linen text-graphite hover:border-ink"
+                    }`}
+                    style={{ transitionDuration: "220ms", transitionTimingFunction: "cubic-bezier(0.16,1,0.3,1)" }}
+                  >
+                    {label}
+                  </motion.button>
+                );
+              })}
+              {/* Bag — full width */}
+              <motion.button
+                {...tap}
+                onClick={() => setPickedCategory("bag")}
+                className={`col-span-2 h-[72px] border text-[13px] uppercase tracking-[0.12em] ${
+                  pickedCategory === "bag"
+                    ? "border-graphite bg-graphite text-bone"
+                    : "border-ink/40 bg-linen text-graphite hover:border-ink"
+                }`}
+                style={{ transitionDuration: "220ms", transitionTimingFunction: "cubic-bezier(0.16,1,0.3,1)" }}
+              >
+                Bag
+              </motion.button>
+            </div>
+
+            <input
+              type="text"
+              value={pickedSubcategory}
+              onChange={(e) => setPickedSubcategory(e.target.value)}
+              placeholder="Describe it (optional)"
+              className="mt-6 w-full border-0 border-b border-ink bg-transparent py-2 font-mono text-[13px] text-graphite placeholder:text-ink/60 focus:border-graphite focus:outline-none"
+            />
+
+            <div className="mt-6 flex gap-2">
+              {FORMALITY_OPTIONS.map(({ label, score }) => {
+                const active = pickedFormality === score;
+                return (
+                  <motion.button
+                    {...tap}
+                    key={score}
+                    onClick={() => setPickedFormality(score)}
+                    className={`h-9 flex-1 rounded-full px-4 font-mono text-[11px] uppercase tracking-[0.16em] transition-colors ${
+                      active
+                        ? "bg-graphite text-bone"
+                        : "border border-ink text-ink hover:border-graphite hover:text-graphite"
+                    }`}
+                  >
+                    {label}
+                  </motion.button>
+                );
+              })}
+            </div>
+
+            <div className="mt-6 flex items-center gap-3">
+              <button
+                onClick={resetPicked}
+                className="font-mono text-[11px] uppercase tracking-[0.16em] text-ink hover:text-graphite"
+              >
+                Cancel
+              </button>
+              <motion.button
+                {...tap}
+                onClick={handleSubmit}
+                disabled={!pickedCategory}
+                className="ml-auto h-12 flex-1 bg-graphite font-mono text-[12px] uppercase text-bone hover:bg-noir disabled:opacity-30"
+                style={{ letterSpacing: "0.08em" }}
+              >
+                Add to wardrobe
+              </motion.button>
+            </div>
+
+            {errorMsg && (
+              <p className="mt-4 text-center font-mono text-[11px] text-noir">{errorMsg}</p>
+            )}
+          </div>
         )}
 
         {stage !== "idle" && (
