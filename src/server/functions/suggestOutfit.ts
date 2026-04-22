@@ -36,13 +36,15 @@ interface SuggestInput {
   exclude_batch_id?: string;
 }
 
+// Generous ranges so common smart-casual pieces (formality 6) are eligible
+// for both office and evening looks. The AI applies finer judgment on top.
 const FORMALITY_RANGE: Record<Occasion, [number, number]> = {
-  office: [7, 10],
-  casual: [3, 6],
-  evening: [8, 10],
-  athletic: [1, 3],
-  formal: [9, 10],
-  travel: [3, 7],
+  office: [5, 10],
+  casual: [1, 7],
+  evening: [6, 10],
+  athletic: [1, 4],
+  formal: [8, 10],
+  travel: [2, 8],
 };
 
 function seasonsForTemp(c: number): string[] {
