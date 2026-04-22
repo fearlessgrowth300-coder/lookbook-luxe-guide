@@ -97,6 +97,7 @@ function ThreeLooksPage() {
     const candidates = wardrobeQuery.data.map((i) => ({
       id: i.id,
       category: i.category,
+      subcategory: i.subcategory,
       formality_score: i.formality_score,
     }));
     const suggestions = await mockSuggestOutfits({
@@ -114,22 +115,32 @@ function ThreeLooksPage() {
       return;
     }
 
-    // Insert all, return rows
-    const rows = suggestions.map((s) => ({
+    // Three outfits generated together share a batch_id, ordered by look_sequence.
+    const batchId = crypto.randomUUID();
+    const rows = suggestions.map((s, i) => ({
       user_id: user.id,
       item_ids: s.item_ids,
       occasion,
       rationale: s.rationale,
-      context: { temp_c: 14, name: s.name },
+      name: s.name,
+      batch_id: batchId,
+      look_sequence: i + 1,
+      context: { temp_c: 14 },
     }));
-    const { data: inserted, error } = await supabase
-      .from("outfits")
-      .insert(rows)
-      .select();
-    if (error) throw error;
+    const { error: insertErr } = await supabase.from("outfits").insert(rows);
+    if (insertErr) throw insertErr;
 
-    setOutfits((inserted ?? []) as OutfitRecord[]);
-    setNames(suggestions.map((s) => s.name));
+    // Fetch back via batch_id, ordered by look_sequence
+    const { data: fetched, error: fetchErr } = await supabase
+      .from("outfits")
+      .select("*")
+      .eq("batch_id", batchId)
+      .order("look_sequence", { ascending: true });
+    if (fetchErr) throw fetchErr;
+
+    const rows2 = (fetched ?? []) as OutfitRecord[];
+    setOutfits(rows2);
+    setNames(rows2.map((r) => r.name ?? ""));
 
     if (suggestions.length < 3) {
       const have = suggestions.length;
