@@ -450,7 +450,13 @@ const STAGES: { id: UploadStage; label: string }[] = [
   { id: "enhancing", label: "Waiting for enhanced image" },
 ];
 
-function UploadSheet({ onClose }: { onClose: () => void }) {
+function UploadSheet({
+  onClose,
+  onPendingChange,
+}: {
+  onClose: () => void;
+  onPendingChange: (pending: PendingUploadItem | null) => void;
+}) {
   const { user } = useAuth();
   const qc = useQueryClient();
   const [dragOver, setDragOver] = useState(false);
@@ -483,30 +489,35 @@ function UploadSheet({ onClose }: { onClose: () => void }) {
 
   const handleFile = async (file: File) => {
     if (!user) return;
-    if (file.size > 10 * 1024 * 1024) {
-      toast("File too large (max 10 MB)");
-      return;
-    }
     setErrorMsg(null);
+    const itemId = crypto.randomUUID();
+    const previewUrl = URL.createObjectURL(file);
+    onPendingChange({ id: itemId, previewUrl, stage: "decoding" });
     try {
-      const itemId = crypto.randomUUID();
       const rawPath = `${user.id}/${itemId}.jpg`;
       const thumbPath = `${user.id}/${itemId}.jpg`;
 
       setStage("preparing");
-      const { rawBlob, thumbBlob, placeholder } = await prepareUploadAssets(file);
+      const { rawBlob, thumbBlob, placeholder } = await prepareUploadAssets(
+        file,
+        1600,
+        0.9,
+        0.85,
+        (s) => onPendingChange({ id: itemId, previewUrl, stage: s }),
+      );
 
       setStage("uploading-thumb");
+      onPendingChange({ id: itemId, previewUrl, stage: "uploading" });
       const thumbUp = await supabase.storage
         .from("wardrobe-thumbs")
         .upload(thumbPath, thumbBlob, { contentType: "image/jpeg" });
-      if (thumbUp.error) throw thumbUp.error;
+      if (thumbUp.error) throw new UploadError(thumbUp.error.message);
 
       setStage("uploading-raw");
       const rawUp = await supabase.storage
         .from("wardrobe-raw")
         .upload(rawPath, rawBlob, { contentType: "image/jpeg" });
-      if (rawUp.error) throw rawUp.error;
+      if (rawUp.error) throw new UploadError(rawUp.error.message);
 
       setStage("saving");
       const { error: insertErr } = await supabase.from("wardrobe_items").insert({
@@ -516,13 +527,14 @@ function UploadSheet({ onClose }: { onClose: () => void }) {
         thumbnail_path: thumbPath,
         placeholder,
       });
-      if (insertErr) throw insertErr;
+      if (insertErr) throw new DbInsertError(insertErr.message);
 
       insertedItemIdRef.current = itemId;
       qc.invalidateQueries({ queryKey: ["wardrobe", user.id] });
       toast("Added to wardrobe");
 
       setStage("enhancing");
+      onPendingChange({ id: itemId, previewUrl, stage: "enhancing" });
 
       // Fire-and-forget mock enhance + analyze
       (async () => {
@@ -555,9 +567,19 @@ function UploadSheet({ onClose }: { onClose: () => void }) {
         }
       })();
     } catch (e) {
+      const isKnown =
+        e instanceof UnsupportedFormatError ||
+        e instanceof DecodeError ||
+        e instanceof ThumbnailError ||
+        e instanceof UploadError ||
+        e instanceof DbInsertError;
+      const name = isKnown && e instanceof Error ? e.name : "UploadError";
       const message = e instanceof Error ? e.message : "Upload failed";
-      setErrorMsg(message);
-      toast(message);
+      console.error(`[upload:${name}]`, { name: file.name, size: file.size, type: file.type }, e);
+      setErrorMsg(`${name}: ${message}`);
+      toast.error(`${name}: ${message}`);
+      URL.revokeObjectURL(previewUrl);
+      onPendingChange(null);
       setStage("idle");
       insertedItemIdRef.current = null;
     } finally {
