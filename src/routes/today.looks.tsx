@@ -65,7 +65,7 @@ interface OutfitRecord {
 }
 
 function ThreeLooksPage() {
-  const { occasion } = Route.useSearch();
+  const { occasion: searchOccasion, batch: searchBatch } = Route.useSearch();
   const { user } = useAuth();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -75,7 +75,10 @@ function ThreeLooksPage() {
   const [loading, setLoading] = useState(true);
   const [shuffling, setShuffling] = useState(false);
   const [missingMsg, setMissingMsg] = useState<string | null>(null);
-  const generatedRef = useRef(false);
+  const [effectiveOccasion, setEffectiveOccasion] = useState<Occasion>(
+    searchOccasion ?? "office",
+  );
+  const loadedRef = useRef(false);
 
   // Wardrobe with category info for compose & display
   const wardrobeQuery = useQuery({
@@ -99,7 +102,24 @@ function ThreeLooksPage() {
     return map;
   }, [wardrobeQuery.data]);
 
-  async function generate(excludeSigs: string[][] = []) {
+  // Load an existing batch from DB
+  async function loadBatch(batchId: string) {
+    const { data, error } = await supabase
+      .from("outfits")
+      .select("*")
+      .eq("batch_id", batchId)
+      .order("look_sequence", { ascending: true });
+    if (error) throw error;
+    const rows = (data ?? []) as OutfitRecord[];
+    setOutfits(rows);
+    setNames(rows.map((r) => r.name ?? ""));
+    if (rows[0]?.occasion && (OCCASIONS as string[]).includes(rows[0].occasion)) {
+      setEffectiveOccasion(rows[0].occasion as Occasion);
+    }
+  }
+
+  // Generate a fresh batch (used as fallback if no ?batch= and for shuffle)
+  async function generate(occ: Occasion, excludeSigs: string[][] = []) {
     if (!user || !wardrobeQuery.data) return;
     const candidates = wardrobeQuery.data.map((i) => ({
       id: i.id,
@@ -109,7 +129,7 @@ function ThreeLooksPage() {
     }));
     const suggestions = await mockSuggestOutfits({
       user_id: user.id,
-      occasion,
+      occasion: occ,
       temp_c: 14,
       candidates,
       count: 3,
@@ -122,12 +142,11 @@ function ThreeLooksPage() {
       return;
     }
 
-    // Three outfits generated together share a batch_id, ordered by look_sequence.
     const batchId = crypto.randomUUID();
     const rows = suggestions.map((s, i) => ({
       user_id: user.id,
       item_ids: s.item_ids,
-      occasion,
+      occasion: occ,
       rationale: s.rationale,
       name: s.name,
       batch_id: batchId,
@@ -137,7 +156,6 @@ function ThreeLooksPage() {
     const { error: insertErr } = await supabase.from("outfits").insert(rows);
     if (insertErr) throw insertErr;
 
-    // Fetch back via batch_id, ordered by look_sequence
     const { data: fetched, error: fetchErr } = await supabase
       .from("outfits")
       .select("*")
@@ -152,38 +170,48 @@ function ThreeLooksPage() {
     if (suggestions.length < 3) {
       const have = suggestions.length;
       setMissingMsg(
-        `We can build ${have} ${occasion} look${have === 1 ? "" : "s"}. Add more pieces to unlock more variations.`,
+        `We can build ${have} ${occ} look${have === 1 ? "" : "s"}. Add more pieces to unlock more variations.`,
       );
     } else {
       setMissingMsg(null);
     }
   }
 
-  // Initial generation once wardrobe loads
+  // Initial load: prefer batch, fall back to occasion-based generation
   useEffect(() => {
-    if (
-      generatedRef.current ||
-      !user ||
-      wardrobeQuery.isLoading ||
-      !wardrobeQuery.data
-    )
+    if (loadedRef.current || !user) return;
+    if (searchBatch) {
+      loadedRef.current = true;
+      setLoading(true);
+      loadBatch(searchBatch)
+        .catch((e) => {
+          console.error(e);
+          toast("Couldn't load this set");
+        })
+        .finally(() => setLoading(false));
       return;
-    generatedRef.current = true;
+    }
+    if (wardrobeQuery.isLoading || !wardrobeQuery.data) return;
+    if (!searchOccasion) {
+      navigate({ to: "/today" });
+      return;
+    }
+    loadedRef.current = true;
     setLoading(true);
-    generate()
+    generate(searchOccasion)
       .catch((e) => {
         console.error(e);
         toast("Couldn't compose looks");
       })
       .finally(() => setLoading(false));
-  }, [user, wardrobeQuery.isLoading, wardrobeQuery.data]);
+  }, [user, searchBatch, searchOccasion, wardrobeQuery.isLoading, wardrobeQuery.data]);
 
   async function handleShuffle() {
     if (shuffling || !outfits.length) return;
     setShuffling(true);
     const sigs = outfits.map((o) => o.item_ids);
     try {
-      await generate(sigs);
+      await generate(effectiveOccasion, sigs);
     } catch (e) {
       console.error(e);
       toast("Couldn't reshuffle");
@@ -193,7 +221,8 @@ function ThreeLooksPage() {
   }
 
   const itemCount = wardrobeQuery.data?.length ?? 0;
-  const tooFewItems = !wardrobeQuery.isLoading && itemCount < 5;
+  const tooFewItems =
+    !searchBatch && !wardrobeQuery.isLoading && itemCount < 5;
 
   // Empty state
   if (tooFewItems) {
