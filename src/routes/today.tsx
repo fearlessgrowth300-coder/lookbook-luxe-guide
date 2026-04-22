@@ -54,9 +54,10 @@ const ALL_OCCASIONS: { id: Occasion; label: string }[] = [
 function TodayPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { occasion: urlOccasion } = Route.useSearch();
   const { mood, setMood } = useUI();
   const [moreOpen, setMoreOpen] = useState(false);
-  const [selected, setSelected] = useState<Occasion | null>(null);
+  const selected = urlOccasion ?? null;
   const [generating, setGenerating] = useState(false);
   const [shake, setShake] = useState(0);
 
