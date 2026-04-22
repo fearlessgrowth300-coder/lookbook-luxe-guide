@@ -621,8 +621,33 @@ function UploadSheet({
     if (dropInputRef.current) dropInputRef.current.value = "";
   };
 
-  const handleFile = async (file: File) => {
-    if (!user) return;
+  const resetPicked = () => {
+    if (pickedPreview) URL.revokeObjectURL(pickedPreview);
+    setPickedFile(null);
+    setPickedPreview(null);
+    setPickedCategory(null);
+    setPickedSubcategory("");
+    setPickedFormality(6);
+  };
+
+  const pickFile = (file: File) => {
+    setErrorMsg(null);
+    if (pickedPreview) URL.revokeObjectURL(pickedPreview);
+    const url = URL.createObjectURL(file);
+    setPickedFile(file);
+    setPickedPreview(url);
+    setPickedCategory(null);
+    setPickedSubcategory("");
+    setPickedFormality(6);
+    resetInputs();
+  };
+
+  const handleSubmit = async () => {
+    if (!user || !pickedFile || !pickedCategory) return;
+    const file = pickedFile;
+    const userCategory = pickedCategory;
+    const userSubcategory = pickedSubcategory.trim();
+    const userFormality = pickedFormality;
     setErrorMsg(null);
     const itemId = crypto.randomUUID();
     const previewUrl = URL.createObjectURL(file);
@@ -660,6 +685,9 @@ function UploadSheet({
         raw_path: rawPath,
         thumbnail_path: thumbPath,
         placeholder,
+        category: userCategory,
+        subcategory: userSubcategory || null,
+        formality_score: userFormality,
       });
       if (insertErr) throw new DbInsertError(insertErr.message);
 
@@ -670,7 +698,10 @@ function UploadSheet({
       setStage("enhancing");
       onPendingChange({ id: itemId, previewUrl, stage: "enhancing" });
 
-      // Fire-and-forget mock enhance + analyze
+      // Fire-and-forget mock enhance + analyze. We INTENTIONALLY skip writing
+      // category / subcategory / formality_score from the mock — those are owned
+      // by the user. The mock still fills in color/material/season/tags so the
+      // gallery has something to show.
       (async () => {
         try {
           const [bg, analysis] = await Promise.all([
@@ -685,21 +716,19 @@ function UploadSheet({
             .from("wardrobe_items")
             .update({
               enhanced_path: bg.enhanced_path,
-              category: analysis.category,
-              subcategory: analysis.subcategory,
               color_primary: analysis.color_primary,
               color_secondary: analysis.color_secondary,
               material: analysis.material,
               season: analysis.season,
-              formality_score: analysis.formality_score,
               tags: analysis.tags,
             })
             .eq("id", itemId);
-          // realtime subscription will refetch and the effect above closes the sheet
         } catch (err) {
           console.error("Enhance failed", err);
         }
       })();
+
+      resetPicked();
     } catch (e) {
       const isKnown =
         e instanceof UnsupportedFormatError ||
