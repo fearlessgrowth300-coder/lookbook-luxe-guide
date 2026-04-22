@@ -11,6 +11,7 @@
 // 8. Insert valid looks into `outfits` with shared batch_id.
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { checkAndIncrement, RateLimitError } from "@/server/lib/rate-limit";
 import { chatCompletion, AIGatewayError } from "@/server/lib/ai-gateway";
 
@@ -146,12 +147,16 @@ function buildUserPrompt(args: {
   excludeBatchId?: string;
   candidateList: unknown[];
   feedback?: string;
+  relaxed?: boolean;
 }) {
   const excludeClause = args.excludeBatchId
     ? `\n- The user already saw a prior set; compose genuinely different looks this time.`
     : "";
   const feedbackClause = args.feedback
     ? `\n\nYour previous attempt had problems: ${args.feedback}. Fix them and try again.`
+    : "";
+  const relaxedClause = args.relaxed
+    ? `\n\nThis wardrobe is small. You may relax:\n- Formality variance can extend to 4 (not 3).\n- If no outerwear is available and temp is 10-15°C, skip outerwear rather than fail.\nTry again and return valid looks even if not ideal.`
     : "";
 
   return `Compose THREE looks for:
@@ -190,6 +195,7 @@ function validateLook(
   look: LookProposal,
   candidates: CandidateRow[],
   temp_c: number,
+  opts?: { maxFormalityVariance?: number },
 ): { ok: true } | { ok: false; reason: string } {
   if (!Array.isArray(look.item_ids) || look.item_ids.length === 0) {
     return { ok: false, reason: "no_items" };
@@ -227,10 +233,107 @@ function validateLook(
     .filter((s): s is number => typeof s === "number");
   if (scores.length >= 2) {
     const variance = Math.max(...scores) - Math.min(...scores);
-    if (variance > 3) return { ok: false, reason: "formality_variance" };
+    if (variance > (opts?.maxFormalityVariance ?? 3)) {
+      return { ok: false, reason: "formality_variance" };
+    }
   }
 
   return { ok: true };
+}
+
+function buildCandidateSummary(candidates: CandidateRow[]) {
+  return {
+    total: candidates.length,
+    tops: candidates.filter((c) => c.category === "top").length,
+    bottoms: candidates.filter((c) => c.category === "bottom").length,
+    shoes: candidates.filter((c) => c.category === "shoes").length,
+    outerwear: candidates.filter((c) => c.category === "outerwear").length,
+    dresses: candidates.filter((c) => c.category === "dress").length,
+  };
+}
+
+function pairDifferenceCount(a: LookProposal, b: LookProposal) {
+  const overlap = a.item_ids.filter((id) => b.item_ids.includes(id)).length;
+  return Math.max(a.item_ids.length, b.item_ids.length) - overlap;
+}
+
+function pickMostDistinctSubset(looks: LookProposal[], limit = 3): LookProposal[] {
+  if (looks.length <= 1) return looks.slice(0, limit);
+
+  const pool = looks.slice(0, limit);
+  let bestSubset: LookProposal[] = [pool[0]];
+  let bestScore = -1;
+
+  const totalMasks = 1 << pool.length;
+  for (let mask = 1; mask < totalMasks; mask++) {
+    const subset = pool.filter((_, idx) => (mask & (1 << idx)) !== 0);
+    let valid = true;
+    let score = 0;
+
+    for (let i = 0; i < subset.length; i++) {
+      for (let j = i + 1; j < subset.length; j++) {
+        const difference = pairDifferenceCount(subset[i], subset[j]);
+        if (difference < 2) {
+          valid = false;
+          break;
+        }
+        score += difference;
+      }
+      if (!valid) break;
+    }
+
+    if (
+      valid &&
+      (subset.length > bestSubset.length ||
+        (subset.length === bestSubset.length && score > bestScore))
+    ) {
+      bestSubset = subset;
+      bestScore = score;
+    }
+  }
+
+  return bestSubset.slice(0, limit);
+}
+
+async function persistStylingLog(args: {
+  userId: string;
+  batchId: string;
+  occasion: Occasion;
+  tempC: number;
+  mood?: Mood;
+  archetype: string;
+  wardrobeSize: number;
+  candidates: CandidateRow[];
+  reasoning?: ReasoningBlock;
+  rawResponse: unknown;
+  validationResults: unknown;
+  failureReasons: string[];
+  attempt: number;
+  mode: "strict" | "relaxed";
+}) {
+  try {
+    await supabaseAdmin.from("styling_logs" as any).insert({
+      user_id: args.userId,
+      batch_id: args.batchId,
+      occasion: args.occasion,
+      temp_c: Math.round(args.tempC),
+      mood: args.mood ?? null,
+      archetype: args.archetype,
+      reasoning: args.reasoning ?? null,
+      wardrobe_size: args.wardrobeSize,
+      candidate_size: args.candidates.length,
+      raw_response: args.rawResponse,
+      validation_results: {
+        attempt: args.attempt,
+        mode: args.mode,
+        candidate_summary: buildCandidateSummary(args.candidates),
+        validation_results: args.validationResults,
+      },
+      failure_reasons: args.failureReasons,
+    });
+  } catch (error) {
+    console.error("[suggestOutfit] Failed to persist styling log", error);
+  }
 }
 
 function looksAreDistinct(looks: LookProposal[]): boolean {
