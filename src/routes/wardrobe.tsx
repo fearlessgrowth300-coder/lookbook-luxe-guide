@@ -4,29 +4,19 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Plus, X, Upload as UploadIcon, Camera, ImageIcon, Check, Sparkles } from "lucide-react";
 import { toast } from "sonner";
+import { useServerFn } from "@tanstack/react-start";
 import { Shell } from "@/components/Shell";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { useAuth } from "@/lib/auth";
 import { useUI } from "@/lib/store";
 import { supabase } from "@/integrations/supabase/client";
 import { ease, dur, tap } from "@/lib/motion";
-import { prepareUploadAssets, type PreparationStage, type PipelineEvent } from "@/lib/thumbnail";
+import { prepareUploadAssets } from "@/lib/thumbnail";
 import { readFileToBlob, blobToFile } from "@/lib/safe-file-read";
-import {
-  DbInsertError,
-  DecodeError,
-  getStep,
-  ThumbnailError,
-  UnsupportedFormatError,
-  UploadError,
-} from "@/lib/upload-errors";
-import {
-  mockAnalyzeGarment,
-  type Category,
-} from "@/server/mock-ai";
+import { DbInsertError, getStep, UploadError } from "@/lib/upload-errors";
+import { type Category } from "@/server/mock-ai";
 import { removeBg, warmBgRemoval } from "@/lib/bg-removal";
-
-const BG_REMOVAL_FIRST_RUN_KEY = "atelier:bg-removal-seen";
+import { analyzeWardrobeItem } from "@/server/functions/analyzeWardrobeItem";
 
 export const Route = createFileRoute("/wardrobe")({
   component: () => (
