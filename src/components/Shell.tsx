@@ -1,8 +1,10 @@
 import { Link, useLocation } from "@tanstack/react-router";
 import { motion } from "framer-motion";
 import { Sun, Shirt, Bookmark } from "lucide-react";
+import { useEffect } from "react";
 import { useAuth } from "@/lib/auth";
 import { ease, dur } from "@/lib/motion";
+import { warmBgRemoval } from "@/lib/bg-removal";
 import type { ReactNode } from "react";
 
 const NAV = [
