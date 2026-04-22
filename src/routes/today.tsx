@@ -58,45 +58,52 @@ function TodayPage() {
   );
   const dayName = today.toLocaleDateString("en-US", { weekday: "long" });
 
-  // Daily prompt
+  // Daily prompt — server function caches per user/day; geolocation optional.
   const promptQuery = useQuery({
     queryKey: ["daily-prompt", user?.id, today.toDateString()],
     enabled: !!user,
     queryFn: async () => {
-      const dateStr = today.toISOString().slice(0, 10);
-      const { data: existing } = await supabase
-        .from("daily_prompts")
-        .select("*")
-        .eq("user_id", user!.id)
-        .eq("prompt_date", dateStr)
-        .maybeSingle();
-      if (existing) return existing;
+      // Best-effort browser geolocation. Time out fast and ignore errors —
+      // the server falls back to neutral defaults.
+      const coords = await new Promise<{ lat: number; lon: number } | null>(
+        (resolve) => {
+          if (typeof navigator === "undefined" || !navigator.geolocation) {
+            resolve(null);
+            return;
+          }
+          const timer = setTimeout(() => resolve(null), 2500);
+          navigator.geolocation.getCurrentPosition(
+            (pos) => {
+              clearTimeout(timer);
+              resolve({
+                lat: pos.coords.latitude,
+                lon: pos.coords.longitude,
+              });
+            },
+            () => {
+              clearTimeout(timer);
+              resolve(null);
+            },
+            { timeout: 2000, maximumAge: 60 * 60 * 1000 },
+          );
+        },
+      );
 
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("style_archetype")
-        .eq("id", user!.id)
-        .maybeSingle();
-
-      const result = await mockGenerateDailyPrompt({
-        user_id: user!.id,
-        temp_c: 14,
-        weather: "Overcast",
-        day_of_week: dayName,
-        archetype: profile?.style_archetype ?? null,
+      const result = await generateDailyPrompt({
+        data: coords ?? {},
       });
 
-      const { data: inserted } = await supabase
-        .from("daily_prompts")
-        .insert({
+      if ("error" in result) {
+        // Soft-fail: return a neutral prompt object rather than break the page
+        return {
+          id: "fallback",
           user_id: user!.id,
-          prompt_date: dateStr,
-          prompt_text: result.prompt_text,
-          context: result.context,
-        })
-        .select()
-        .single();
-      return inserted!;
+          prompt_date: today.toISOString().slice(0, 10),
+          prompt_text: "Today, choose less. Then choose well.",
+          context: { fallback: true, reason: result.error },
+        };
+      }
+      return result.prompt;
     },
   });
 
