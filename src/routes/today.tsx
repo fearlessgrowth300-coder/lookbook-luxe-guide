@@ -12,9 +12,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { ease, dur, tap } from "@/lib/motion";
 import {
   mockGenerateDailyPrompt,
-  mockSuggestOutfits,
   type Occasion,
 } from "@/server/mock-ai";
+import { suggestOutfit } from "@/server/functions/suggestOutfit";
 
 export const Route = createFileRoute("/today")({
   component: () => (
