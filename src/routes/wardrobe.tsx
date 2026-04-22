@@ -624,6 +624,15 @@ function UploadSheet({
     return () => clearTimeout(t);
   }, [stage, onClose]);
 
+  // Revoke the in-memory preview URL on unmount so we don't leak it if the
+  // user closes the sheet without submitting.
+  useEffect(() => {
+    return () => {
+      if (pickedPreview) URL.revokeObjectURL(pickedPreview);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const resetInputs = () => {
     if (cameraInputRef.current) cameraInputRef.current.value = "";
     if (galleryInputRef.current) galleryInputRef.current.value = "";
