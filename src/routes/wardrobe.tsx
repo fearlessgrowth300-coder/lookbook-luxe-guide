@@ -401,12 +401,14 @@ function Tile({
   index,
   selected,
   onToggleSelect,
+  onTap,
   pending,
 }: {
   item?: WardrobeItem;
   index: number;
   selected?: boolean;
   onToggleSelect?: () => void;
+  onTap?: () => void;
   pending?: { previewUrl: string; label: string };
 }) {
   const stagger = Math.min(index, 17) * 0.035;
@@ -419,6 +421,7 @@ function Tile({
   const [imgUrl, setImgUrl] = useState<string | null>(pending?.previewUrl ?? enhancedUrl ?? thumbUrl);
 
   const longPressTimer = useRef<number | null>(null);
+  const longPressFiredRef = useRef(false);
 
   useEffect(() => {
     setImgUrl(pending?.previewUrl ?? enhancedUrl ?? thumbUrl);
@@ -435,7 +438,13 @@ function Tile({
         onToggleSelect?.();
       }}
       onPointerDown={() => {
-        if (onToggleSelect) longPressTimer.current = window.setTimeout(onToggleSelect, 500);
+        longPressFiredRef.current = false;
+        if (onToggleSelect) {
+          longPressTimer.current = window.setTimeout(() => {
+            longPressFiredRef.current = true;
+            onToggleSelect();
+          }, 500);
+        }
       }}
       onPointerUp={() => {
         if (longPressTimer.current) clearTimeout(longPressTimer.current);
@@ -444,7 +453,11 @@ function Tile({
         if (longPressTimer.current) clearTimeout(longPressTimer.current);
       }}
       onClick={() => {
-        // Tap toggles selection if any are selected
+        if (longPressFiredRef.current) {
+          longPressFiredRef.current = false;
+          return;
+        }
+        onTap?.();
       }}
       className={`group relative aspect-[3/4] cursor-pointer bg-linen p-3 transition-shadow ${
         selected ? "ring-1 ring-graphite ring-offset-2 ring-offset-bone" : ""
