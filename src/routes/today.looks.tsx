@@ -1,15 +1,23 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { motion, AnimatePresence } from "framer-motion";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, Shuffle } from "lucide-react";
+import {
+  ChevronLeft,
+  Shuffle,
+  Bookmark,
+  Check,
+  ArrowRight,
+  Share2,
+  Plus,
+} from "lucide-react";
 import { toast } from "sonner";
-import { Shell } from "@/components/Shell";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { useAuth } from "@/lib/auth";
 import { supabase } from "@/integrations/supabase/client";
 import { ease, dur, tap } from "@/lib/motion";
-import { mockSuggestOutfits, type Occasion } from "@/server/mock-ai";
+import { suggestOutfit } from "@/server/functions/suggestOutfit";
+import { type Occasion } from "@/server/mock-ai";
 
 const OCCASIONS: Occasion[] = [
   "office",
@@ -60,7 +68,6 @@ interface OutfitRecord {
   name: string | null;
   look_sequence: number | null;
   batch_id: string | null;
-  context: any;
 }
 
 function ThreeLooksPage() {
@@ -70,16 +77,10 @@ function ThreeLooksPage() {
   const qc = useQueryClient();
 
   const [outfits, setOutfits] = useState<OutfitRecord[]>([]);
-  const [names, setNames] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
   const [shuffling, setShuffling] = useState(false);
-  const [missingMsg, setMissingMsg] = useState<string | null>(null);
-  const [effectiveOccasion, setEffectiveOccasion] = useState<Occasion>(
-    searchOccasion ?? "office",
-  );
-  const loadedRef = useRef(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const pagerRef = useRef<HTMLDivElement>(null);
 
-  // Wardrobe with category info for compose & display
   const wardrobeQuery = useQuery({
     queryKey: ["wardrobe-full", user?.id],
     enabled: !!user,
@@ -101,256 +102,250 @@ function ThreeLooksPage() {
     return map;
   }, [wardrobeQuery.data]);
 
-  // Load an existing batch from DB
-  async function loadBatch(batchId: string) {
-    const { data, error } = await supabase
-      .from("outfits")
-      .select("*")
-      .eq("batch_id", batchId)
-      .order("look_sequence", { ascending: true });
-    if (error) throw error;
-    const rows = (data ?? []) as OutfitRecord[];
-    setOutfits(rows);
-    setNames(rows.map((r) => r.name ?? ""));
-    if (rows[0]?.occasion && (OCCASIONS as string[]).includes(rows[0].occasion)) {
-      setEffectiveOccasion(rows[0].occasion as Occasion);
-    }
-  }
+  const batchQuery = useQuery({
+    queryKey: ["outfit-batch", searchBatch],
+    enabled: !!searchBatch && !!user,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("outfits")
+        .select(
+          "id, item_ids, rationale, occasion, saved, name, look_sequence, batch_id",
+        )
+        .eq("batch_id", searchBatch!)
+        .order("look_sequence", { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as OutfitRecord[];
+    },
+  });
 
-  // Generate a fresh batch (used as fallback if no ?batch= and for shuffle)
-  async function generate(occ: Occasion, excludeSigs: string[][] = []) {
-    if (!user || !wardrobeQuery.data) return;
-    const candidates = wardrobeQuery.data.map((i) => ({
-      id: i.id,
-      category: i.category,
-      subcategory: i.subcategory,
-      formality_score: i.formality_score,
-    }));
-    const suggestions = await mockSuggestOutfits({
-      user_id: user.id,
-      occasion: occ,
-      temp_c: 14,
-      candidates,
-      count: 3,
-      exclude_signatures: excludeSigs,
-    });
-
-    if (!suggestions.length) {
-      setOutfits([]);
-      setNames([]);
-      return;
-    }
-
-    const batchId = crypto.randomUUID();
-    const rows = suggestions.map((s, i) => ({
-      user_id: user.id,
-      item_ids: s.item_ids,
-      occasion: occ,
-      rationale: s.rationale,
-      name: s.name,
-      batch_id: batchId,
-      look_sequence: i + 1,
-      context: { temp_c: 14 },
-    }));
-    const { error: insertErr } = await supabase.from("outfits").insert(rows);
-    if (insertErr) throw insertErr;
-
-    const { data: fetched, error: fetchErr } = await supabase
-      .from("outfits")
-      .select("*")
-      .eq("batch_id", batchId)
-      .order("look_sequence", { ascending: true });
-    if (fetchErr) throw fetchErr;
-
-    const rows2 = (fetched ?? []) as OutfitRecord[];
-    setOutfits(rows2);
-    setNames(rows2.map((r) => r.name ?? ""));
-
-    if (suggestions.length < 3) {
-      const have = suggestions.length;
-      setMissingMsg(
-        `We can build ${have} ${occ} look${have === 1 ? "" : "s"}. Add more pieces to unlock more variations.`,
-      );
-    } else {
-      setMissingMsg(null);
-    }
-  }
-
-  // Initial load: prefer batch, fall back to occasion-based generation
   useEffect(() => {
-    if (loadedRef.current || !user) return;
-    if (searchBatch) {
-      loadedRef.current = true;
-      setLoading(true);
-      loadBatch(searchBatch)
-        .catch((e) => {
-          console.error(e);
-          toast("Couldn't load this set");
-        })
-        .finally(() => setLoading(false));
-      return;
+    if (batchQuery.data) {
+      setOutfits(batchQuery.data);
     }
-    if (wardrobeQuery.isLoading || !wardrobeQuery.data) return;
-    if (!searchOccasion) {
-      navigate({ to: "/today" });
-      return;
+  }, [batchQuery.data]);
+
+  const effectiveOccasion: Occasion = useMemo(() => {
+    const fromBatch = outfits[0]?.occasion;
+    if (fromBatch && (OCCASIONS as string[]).includes(fromBatch)) {
+      return fromBatch as Occasion;
     }
-    loadedRef.current = true;
-    setLoading(true);
-    generate(searchOccasion)
-      .catch((e) => {
-        console.error(e);
-        toast("Couldn't compose looks");
-      })
-      .finally(() => setLoading(false));
-  }, [user, searchBatch, searchOccasion, wardrobeQuery.isLoading, wardrobeQuery.data]);
+    return searchOccasion ?? "office";
+  }, [outfits, searchOccasion]);
+
+  // Track which look is centered (mobile horizontal scroll)
+  useEffect(() => {
+    const el = pagerRef.current;
+    if (!el) return;
+    function onScroll() {
+      if (!el) return;
+      const i = Math.round(el.scrollLeft / el.clientWidth);
+      setActiveIndex((prev) => (prev !== i ? i : prev));
+    }
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [outfits.length]);
+
+  function jumpTo(i: number) {
+    const el = pagerRef.current;
+    if (!el) return;
+    el.scrollTo({ left: i * el.clientWidth, behavior: "smooth" });
+  }
 
   async function handleShuffle() {
-    if (shuffling || !outfits.length) return;
+    if (shuffling) return;
     setShuffling(true);
-    const sigs = outfits.map((o) => o.item_ids);
     try {
-      await generate(effectiveOccasion, sigs);
-    } catch (e) {
-      console.error(e);
-      toast("Couldn't reshuffle");
+      const result = await suggestOutfit({
+        data: { occasion: effectiveOccasion, temp_c: 14 },
+      });
+      if ("error" in result) {
+        toast("Couldn't reshuffle. Try again.");
+        return;
+      }
+      navigate({
+        to: "/today/looks",
+        search: { batch: result.batch_id, occasion: effectiveOccasion },
+        replace: true,
+      });
+      qc.invalidateQueries({ queryKey: ["recent-outfits"] });
+    } catch {
+      toast("Couldn't reshuffle.");
     } finally {
       setShuffling(false);
     }
   }
 
-  const itemCount = wardrobeQuery.data?.length ?? 0;
-  const tooFewItems =
-    !searchBatch && !wardrobeQuery.isLoading && itemCount < 5;
+  const loading =
+    (searchBatch && batchQuery.isLoading) || wardrobeQuery.isLoading;
 
-  // Empty state
-  if (tooFewItems) {
-    return (
-      <Shell>
-        <section className="flex min-h-[calc(100vh-128px)] items-center justify-center px-6 md:px-12">
-          <div className="max-w-[520px] text-center">
-            <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-ink">
-              {effectiveOccasion}
-            </p>
-            <h1 className="mt-6 font-display text-[28px] font-light leading-[1.2] text-graphite">
-              Your wardrobe is just getting started.
-            </h1>
-            <p className="mt-4 text-[15px] leading-relaxed text-ink">
-              Add at least 5 pieces across tops, bottoms, and shoes so we can
-              compose a real look.
-            </p>
-            <button
-              onClick={() => navigate({ to: "/wardrobe" })}
-              className="mt-8 h-12 border border-ink px-8 text-[14px] text-graphite transition-colors hover:bg-graphite hover:text-bone"
-            >
-              Add a piece
-            </button>
-          </div>
-        </section>
-      </Shell>
-    );
-  }
+  // Build the panels (looks + invitations for missing slots)
+  const panels = useMemo(() => {
+    const list: Array<
+      | { kind: "look"; outfit: OutfitRecord; index: number }
+      | { kind: "invite"; index: number }
+    > = [];
+    outfits.forEach((o, i) => list.push({ kind: "look", outfit: o, index: i }));
+    while (list.length < 2 && outfits.length > 0) {
+      list.push({ kind: "invite", index: list.length });
+    }
+    if (outfits.length > 0 && outfits.length < 3) {
+      list.push({ kind: "invite", index: outfits.length });
+    }
+    return list;
+  }, [outfits]);
 
   return (
-    <Shell>
-      {/* Sub-header */}
-      <header className="sticky top-16 z-30 flex h-[72px] items-center border-b border-linen bg-bone/95 px-6 backdrop-blur md:px-12 lg:px-24">
+    <motion.div
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -8 }}
+      transition={{ duration: 0.52, ease: ease.luxury }}
+      className="fixed inset-0 z-30 flex flex-col bg-bone"
+    >
+      {/* 40px topbar */}
+      <header className="flex h-10 shrink-0 items-center border-b border-linen bg-bone/95 px-4 backdrop-blur">
         <Link
           to="/today"
-          className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.2em] text-ink transition-colors hover:text-graphite"
+          search={{ occasion: effectiveOccasion }}
+          className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.2em] text-ink transition-colors hover:text-graphite"
+          aria-label="Back to Today"
         >
-          <ChevronLeft className="h-4 w-4" strokeWidth={1.25} />
+          <ChevronLeft className="h-3.5 w-3.5" strokeWidth={1.5} />
           Today
         </Link>
-        <p className="flex-1 text-center font-mono text-[11px] uppercase tracking-[0.2em] text-graphite">
-          THREE LOOKS · {effectiveOccasion.toUpperCase()} · 14°C
-        </p>
+
+        <div className="flex flex-1 items-center justify-center gap-1.5">
+          {panels.length > 0 &&
+            panels.map((_, i) => (
+              <button
+                key={i}
+                onClick={() => jumpTo(i)}
+                aria-label={`Go to ${i + 1}`}
+                className="h-1.5 w-1.5 rounded-full transition-colors"
+                style={{
+                  backgroundColor:
+                    activeIndex === i ? "var(--graphite)" : "var(--linen)",
+                }}
+              />
+            ))}
+        </div>
+
         <motion.button
           {...tap}
           onClick={handleShuffle}
-          disabled={shuffling || loading || !outfits.length}
+          disabled={shuffling || loading || outfits.length === 0}
           aria-label="Shuffle"
-          className="flex h-9 w-9 items-center justify-center text-ink transition-colors hover:text-graphite disabled:opacity-40"
+          className="flex h-7 w-7 items-center justify-center text-ink transition-colors hover:text-graphite disabled:opacity-40"
         >
           <motion.span
             animate={shuffling ? { rotate: 360 } : { rotate: 0 }}
             transition={{ duration: 0.6, ease: ease.luxury }}
             className="inline-flex"
           >
-            <Shuffle className="h-5 w-5" strokeWidth={1.25} />
+            <Shuffle className="h-3.5 w-3.5" strokeWidth={1.5} />
           </motion.span>
         </motion.button>
       </header>
 
       {/* Body */}
-      {loading || wardrobeQuery.isLoading ? (
-        <div className="flex min-h-[60vh] items-center justify-center">
-          <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-ink">
-            Composing three looks…
-          </p>
+      {loading ? (
+        <div className="flex flex-1 items-center justify-center">
+          <ComposingDots />
         </div>
+      ) : outfits.length === 0 ? (
+        <EmptyState onAdd={() => navigate({ to: "/wardrobe" })} />
       ) : (
-        <>
-          <div className="px-6 py-12 md:px-12 lg:px-24">
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={outfits.map((o) => o.id).join("|") || "empty"}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: dur.hover }}
-                className="grid gap-8 lg:grid-cols-3"
-              >
-                {outfits.map((o, i) => (
-                  <LookCard
-                    key={o.id}
-                    outfit={o}
-                    index={i}
-                    name={names[i] ?? `Look ${i + 1}`}
-                    items={(o.item_ids ?? [])
-                      .map((id) => itemsById.get(id))
-                      .filter(Boolean) as ItemFull[]}
-                    onSaved={() =>
-                      qc.invalidateQueries({ queryKey: ["wardrobe-full"] })
-                    }
-                  />
-                ))}
-              </motion.div>
-            </AnimatePresence>
-
-            {missingMsg && (
-              <div className="mt-12 bg-linen p-6 text-center">
-                <p className="text-[14px] italic text-ink">{missingMsg}</p>
-              </div>
-            )}
-          </div>
-
-          {/* Mobile dot indicator */}
-          {outfits.length > 1 && <DotIndicator count={outfits.length} />}
-        </>
+        <div
+          ref={pagerRef}
+          className="atelier-pager flex flex-1 snap-x snap-mandatory overflow-x-auto overflow-y-hidden lg:snap-none lg:overflow-x-hidden"
+          style={{ scrollbarWidth: "none" }}
+        >
+          {panels.map((p, i) =>
+            p.kind === "look" ? (
+              <LookPanel
+                key={p.outfit.id}
+                outfit={p.outfit}
+                index={p.index}
+                items={(p.outfit.item_ids ?? [])
+                  .map((id) => itemsById.get(id))
+                  .filter(Boolean) as ItemFull[]}
+                isActive={activeIndex === i}
+                totalPanels={panels.length}
+                onNavigate={navigate}
+              />
+            ) : (
+              <InvitePanel
+                key={`invite-${i}`}
+                index={p.index}
+                totalPanels={panels.length}
+                onAdd={() => navigate({ to: "/wardrobe" })}
+              />
+            ),
+          )}
+        </div>
       )}
-    </Shell>
+
+      <style>{`.atelier-pager::-webkit-scrollbar{display:none}`}</style>
+    </motion.div>
   );
 }
 
-function LookCard({
+/* ─────────────────────────── Composing dots ─────────────────────────── */
+
+function ComposingDots() {
+  return (
+    <div className="flex flex-col items-center gap-4">
+      <span className="inline-flex items-center gap-2">
+        {[0, 1, 2].map((i) => (
+          <motion.span
+            key={i}
+            className="block h-1.5 w-1.5 rounded-full bg-graphite"
+            animate={{ opacity: [0.3, 1, 0.3] }}
+            transition={{
+              duration: 1.2,
+              repeat: Infinity,
+              delay: i * 0.16,
+              ease: ease.drift,
+            }}
+          />
+        ))}
+      </span>
+      <p className="font-mono text-[10px] uppercase tracking-[0.24em] text-ink">
+        Composing
+      </p>
+    </div>
+  );
+}
+
+/* ─────────────────────────── Look panel ─────────────────────────── */
+
+function LookPanel({
   outfit,
   index,
-  name,
   items,
-  onSaved,
+  isActive,
+  totalPanels,
+  onNavigate,
 }: {
   outfit: OutfitRecord;
   index: number;
-  name: string;
   items: ItemFull[];
-  onSaved: () => void;
+  isActive: boolean;
+  totalPanels: number;
+  onNavigate: ReturnType<typeof useNavigate>;
 }) {
-  const navigate = useNavigate();
-  const qc = useQueryClient();
   const [saved, setSaved] = useState(outfit.saved ?? false);
+  const [revealed, setRevealed] = useState(false);
 
-  const ordered = useMemo(() => {
+  useEffect(() => {
+    if (isActive && !revealed) {
+      const t = setTimeout(() => setRevealed(true), 80);
+      return () => clearTimeout(t);
+    }
+  }, [isActive, revealed]);
+
+  // Order items: bottom → top → shoes → outerwear → accessories
+  const stack = useMemo(() => {
     const order = ["outerwear", "top", "dress", "bottom", "shoes"];
     const main = items
       .filter((i) => order.includes(i.category ?? ""))
@@ -364,170 +359,402 @@ function LookCard({
     return { main, accessories };
   }, [items]);
 
+  // Animation order: bottom, top, shoes, outerwear, accessories
+  const animOrder = useMemo(() => {
+    const cats = ["bottom", "top", "dress", "shoes", "outerwear"];
+    const map = new Map<string, number>();
+    let n = 0;
+    cats.forEach((c) => {
+      items.forEach((i) => {
+        if (i.category === c) map.set(i.id, n++);
+      });
+    });
+    items.forEach((i) => {
+      if (!map.has(i.id)) map.set(i.id, n++);
+    });
+    return map;
+  }, [items]);
+
   async function handleSave() {
     const next = !saved;
     setSaved(next);
     await supabase.from("outfits").update({ saved: next }).eq("id", outfit.id);
     navigator.vibrate?.(8);
     toast(next ? "Saved" : "Removed");
-    onSaved();
   }
 
   async function handleWear() {
     const today = new Date().toISOString().slice(0, 10);
     await supabase.from("outfits").update({ worn_on: today }).eq("id", outfit.id);
-    for (const item of items) {
-      await supabase
-        .from("wardrobe_items")
-        .update({
-          last_worn: new Date().toISOString(),
-          wear_count: (1 as number),
-        })
-        .eq("id", item.id);
-    }
     navigator.vibrate?.(8);
     toast("Noted.");
-    qc.invalidateQueries({ queryKey: ["wardrobe-full"] });
   }
 
-  return (
-    <motion.section
-      data-look-index={index}
-      initial={{ opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: dur.page, ease: ease.luxury, delay: index * 0.08 }}
-      className="bg-linen p-8"
-    >
-      <p className="font-mono text-[10px] uppercase tracking-[0.24em] text-ink">
-        LOOK {String(index + 1).padStart(2, "0")}
-      </p>
-      <h2 className="mt-3 font-display text-[28px] font-normal leading-[1.15] text-graphite">
-        {name}
-      </h2>
+  async function handleShare() {
+    const url = `${window.location.origin}/outfit/${outfit.id}`;
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: outfit.name ?? "Look", url });
+      } catch {
+        /* cancelled */
+      }
+    } else {
+      await navigator.clipboard.writeText(url);
+      toast("Link copied");
+    }
+  }
 
-      {/* Composition */}
-      <div className="mt-8 flex justify-center">
-        <div className="relative w-full max-w-[300px]">
-          {ordered.main.map((item, i) => (
-            <ItemFlat key={item.id} item={item} delay={i * 0.12} />
-          ))}
-          {ordered.accessories.length > 0 && (
-            <div className="absolute right-0 top-0 flex flex-col gap-2">
-              {ordered.accessories.slice(0, 2).map((item, i) => (
-                <motion.div
-                  key={item.id}
-                  initial={{ opacity: 0, scale: 0.8 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{
-                    duration: dur.page,
-                    ease: ease.luxury,
-                    delay: 0.4 + i * 0.12,
-                  }}
-                  className="h-16 w-16 bg-bone p-1.5"
-                >
-                  {item.thumbnail_path && (
-                    <img
-                      src={
-                        supabase.storage
-                          .from("wardrobe-thumbs")
-                          .getPublicUrl(item.thumbnail_path).data.publicUrl
-                      }
-                      alt={item.subcategory ?? ""}
-                      className="h-full w-full object-contain"
-                    />
-                  )}
-                </motion.div>
-              ))}
-            </div>
-          )}
+  // Split items into left/right callout sides
+  const leftCats = new Set(["top", "outerwear", "dress"]);
+  const leftItems = items.filter((i) => leftCats.has(i.category ?? ""));
+  const rightItems = items.filter((i) => !leftCats.has(i.category ?? ""));
+
+  return (
+    <section
+      data-look-index={index}
+      className="relative flex h-full w-full shrink-0 snap-start flex-col"
+      style={{
+        flexBasis: totalPanels > 1 ? `${100 / Math.min(totalPanels, 3)}%` : "100%",
+        background:
+          "linear-gradient(180deg, var(--linen) 0%, color-mix(in oklab, var(--linen), var(--ink) 4%) 100%)",
+      }}
+    >
+      {/* Top: eyebrow + name */}
+      <div className="px-6 pt-6 text-center md:pt-10">
+        <motion.p
+          initial={{ opacity: 0, y: 6 }}
+          animate={revealed ? { opacity: 1, y: 0 } : {}}
+          transition={{ duration: 0.42, ease: ease.luxury }}
+          className="font-mono text-[11px] uppercase tracking-[0.24em] text-ink"
+        >
+          LOOK {String(index + 1).padStart(2, "0")}
+        </motion.p>
+        <motion.h2
+          initial={{ opacity: 0, y: 8 }}
+          animate={revealed ? { opacity: 1, y: 0 } : {}}
+          transition={{ duration: 0.52, delay: 0.08, ease: ease.luxury }}
+          className="mt-3 font-display text-[28px] font-normal leading-[1.1] text-graphite md:text-[36px]"
+        >
+          {outfit.name ?? `Look ${index + 1}`}
+        </motion.h2>
+      </div>
+
+      {/* Composition zone */}
+      <div className="relative flex flex-1 items-center justify-center px-2 py-6 md:px-6">
+        <div className="relative w-full max-w-[640px]">
+          {/* Left labels (lg+) */}
+          <div className="pointer-events-none absolute inset-y-0 left-0 hidden w-[140px] flex-col justify-around lg:flex xl:w-[180px]">
+            {leftItems.map((item, i) => (
+              <CalloutLabel
+                key={item.id}
+                item={item}
+                side="left"
+                revealed={revealed}
+                delay={0.4 + i * 0.16}
+              />
+            ))}
+          </div>
+
+          {/* Center stack */}
+          <div className="mx-auto w-full max-w-[280px] md:max-w-[320px]">
+            <ItemStack
+              items={stack.main}
+              accessories={stack.accessories}
+              animOrder={animOrder}
+              revealed={revealed}
+            />
+          </div>
+
+          {/* Right labels (lg+) */}
+          <div className="pointer-events-none absolute inset-y-0 right-0 hidden w-[140px] flex-col justify-around lg:flex xl:w-[180px]">
+            {rightItems.map((item, i) => (
+              <CalloutLabel
+                key={item.id}
+                item={item}
+                side="right"
+                revealed={revealed}
+                delay={0.5 + i * 0.16}
+              />
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* Item legend */}
-      <ul className="mt-8 space-y-2">
-        {items.map((item) => (
-          <li
-            key={item.id}
-            className="flex items-baseline justify-between gap-3 border-b border-bone/60 pb-2"
-          >
-            <span className="text-[13px] text-graphite">
-              {item.subcategory || item.category || "—"}
-            </span>
-            <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink/70">
-              {item.material || item.color_primary || ""}
-            </span>
-          </li>
-        ))}
-      </ul>
+      {/* Mobile/tablet item legend (no callouts at narrow widths) */}
+      <div className="lg:hidden">
+        <ul className="mx-auto max-w-[420px] space-y-1.5 px-6">
+          {items.map((item) => (
+            <li
+              key={item.id}
+              className="flex items-baseline justify-between gap-3 border-b border-bone/70 pb-1.5"
+            >
+              <span className="text-[13px] text-graphite">
+                {(item.subcategory || item.category || "—").toLowerCase()}
+              </span>
+              <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink/70">
+                {[item.material, item.color_primary]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
 
       {/* Rationale */}
       {outfit.rationale && (
-        <p className="mt-6 font-display text-[17px] font-light italic leading-[1.4] text-graphite line-clamp-3">
+        <motion.p
+          initial={{ opacity: 0 }}
+          animate={revealed ? { opacity: 1 } : {}}
+          transition={{ duration: 0.5, delay: 0.7, ease: ease.luxury }}
+          className="mx-auto mt-4 max-w-[480px] px-8 text-center font-display text-[16px] font-light italic leading-[1.45] text-graphite md:text-[18px]"
+          style={{
+            display: "-webkit-box",
+            WebkitLineClamp: 3,
+            WebkitBoxOrient: "vertical",
+            overflow: "hidden",
+          }}
+        >
           {outfit.rationale}
-        </p>
+        </motion.p>
       )}
 
-      {/* Actions */}
-      <div className="mt-8 flex gap-2">
-        <ActionPill label={saved ? "SAVED" : "SAVE"} active={saved} onClick={handleSave} />
-        <ActionPill label="WEAR IT" onClick={handleWear} />
-        <ActionPill
-          label="DETAILS"
-          onClick={() =>
-            navigate({ to: "/outfit/$id", params: { id: outfit.id } })
-          }
-        />
+      {/* Action row */}
+      <div className="flex shrink-0 justify-center px-6 pb-8 pt-6">
+        <div className="flex w-[280px] items-center justify-between">
+          <ActionIcon
+            label="SAVE"
+            icon={<Bookmark className="h-3.5 w-3.5" strokeWidth={1.5} />}
+            active={saved}
+            onClick={handleSave}
+          />
+          <ActionIcon
+            label="WEAR"
+            icon={<Check className="h-3.5 w-3.5" strokeWidth={1.5} />}
+            onClick={handleWear}
+          />
+          <ActionIcon
+            label="DETAILS"
+            icon={<ArrowRight className="h-3.5 w-3.5" strokeWidth={1.5} />}
+            onClick={() =>
+              onNavigate({ to: "/outfit/$id", params: { id: outfit.id } })
+            }
+          />
+          <ActionIcon
+            label="SHARE"
+            icon={<Share2 className="h-3.5 w-3.5" strokeWidth={1.5} />}
+            onClick={handleShare}
+          />
+        </div>
       </div>
-    </motion.section>
+    </section>
   );
 }
 
-function ItemFlat({ item, delay }: { item: ItemFull; delay: number }) {
+/* ─────────────────────────── Item stack ─────────────────────────── */
+
+function ItemStack({
+  items,
+  accessories,
+  animOrder,
+  revealed,
+}: {
+  items: ItemFull[];
+  accessories: ItemFull[];
+  animOrder: Map<string, number>;
+  revealed: boolean;
+}) {
+  return (
+    <div className="relative">
+      {items.map((item) => (
+        <FlatItem
+          key={item.id}
+          item={item}
+          delay={(animOrder.get(item.id) ?? 0) * 0.12}
+          revealed={revealed}
+          offsetX={item.category === "outerwear" ? -28 : 0}
+          z={item.category === "outerwear" ? 1 : 2}
+        />
+      ))}
+
+      {accessories.length > 0 && (
+        <div className="absolute right-0 top-2 flex flex-col gap-2">
+          {accessories.slice(0, 2).map((item) => (
+            <motion.div
+              key={item.id}
+              initial={{ opacity: 0, scale: 0.92 }}
+              animate={revealed ? { opacity: 1, scale: 1 } : {}}
+              transition={{
+                duration: 0.56,
+                ease: ease.luxury,
+                delay: (animOrder.get(item.id) ?? 4) * 0.12,
+              }}
+              className="h-14 w-14 bg-bone/40 p-1.5"
+              style={{ borderRadius: "2px" }}
+            >
+              {item.thumbnail_path && (
+                <img
+                  src={
+                    supabase.storage
+                      .from("wardrobe-thumbs")
+                      .getPublicUrl(item.thumbnail_path).data.publicUrl
+                  }
+                  alt={item.subcategory ?? ""}
+                  className="h-full w-full object-contain"
+                />
+              )}
+            </motion.div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FlatItem({
+  item,
+  delay,
+  revealed,
+  offsetX,
+  z,
+}: {
+  item: ItemFull;
+  delay: number;
+  revealed: boolean;
+  offsetX: number;
+  z: number;
+}) {
   const url = item.enhanced_path
-    ? supabase.storage.from("wardrobe-enhanced").getPublicUrl(item.enhanced_path).data.publicUrl
+    ? supabase.storage.from("wardrobe-enhanced").getPublicUrl(item.enhanced_path)
+        .data.publicUrl
     : item.thumbnail_path
-      ? supabase.storage.from("wardrobe-thumbs").getPublicUrl(item.thumbnail_path).data.publicUrl
+      ? supabase.storage.from("wardrobe-thumbs").getPublicUrl(item.thumbnail_path)
+          .data.publicUrl
       : null;
 
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.94, y: 8 }}
-      animate={{ opacity: 1, scale: 1, y: 0 }}
-      transition={{ duration: dur.page, ease: ease.luxury, delay }}
-      className="relative mx-auto -mt-2 first:mt-0"
+      animate={revealed ? { opacity: 1, scale: 1, y: 0 } : {}}
+      transition={{ duration: 0.56, ease: ease.luxury, delay }}
+      className="relative -mt-3 first:mt-0"
+      style={{ marginLeft: offsetX, zIndex: z }}
     >
-      <div className="flex h-[140px] items-center justify-center">
+      <div className="flex h-[120px] items-center justify-center md:h-[140px]">
         {url ? (
           <img
             src={url}
             alt={item.subcategory ?? ""}
-            className="max-h-[140px] max-w-full object-contain"
+            className="max-h-full max-w-full object-contain"
+            style={{
+              filter: "drop-shadow(0 4px 8px rgba(0,0,0,0.06))",
+            }}
           />
         ) : (
-          <div className="h-full w-32 bg-bone/40" />
+          <div className="h-full w-24 bg-bone/40" />
         )}
       </div>
       {/* Soft ground shadow */}
-      <div
+      <motion.div
         aria-hidden
-        className="mx-auto h-2 rounded-[50%]"
+        initial={{ opacity: 0, scaleX: 0.6 }}
+        animate={revealed ? { opacity: 0.22, scaleX: 1 } : {}}
+        transition={{ duration: 0.56, ease: ease.luxury, delay: delay + 0.1 }}
+        className="mx-auto -mt-1 h-1.5"
         style={{
-          width: "80%",
+          width: "70%",
           background: "var(--ink)",
-          opacity: 0.18,
-          filter: "blur(8px)",
+          borderRadius: "50%",
+          filter: "blur(6px)",
         }}
       />
     </motion.div>
   );
 }
 
-function ActionPill({
+/* ─────────────────────────── Callout label (lg+) ─────────────────────────── */
+
+function CalloutLabel({
+  item,
+  side,
+  revealed,
+  delay,
+}: {
+  item: ItemFull;
+  side: "left" | "right";
+  revealed: boolean;
+  delay: number;
+}) {
+  const isLeft = side === "left";
+  // SVG path: small dot at item edge → horizontal → 90° → up to label
+  // Container is 140-180px wide. Path goes from edge facing center to label.
+  const pathLength = 90;
+  return (
+    <div
+      className={`pointer-events-auto flex items-center ${isLeft ? "justify-start" : "justify-end"}`}
+    >
+      {/* SVG line, drawn after item fades in */}
+      <svg
+        width="80"
+        height="20"
+        viewBox="0 0 80 20"
+        className={`absolute ${isLeft ? "left-[120px] xl:left-[160px]" : "right-[120px] xl:right-[160px]"}`}
+        style={{ top: "50%", transform: "translateY(-50%)" }}
+        aria-hidden
+      >
+        <motion.circle
+          cx={isLeft ? 78 : 2}
+          cy="10"
+          r="2"
+          fill="var(--ink)"
+          initial={{ opacity: 0 }}
+          animate={revealed ? { opacity: 0.6 } : {}}
+          transition={{ duration: 0.3, delay: delay + 0.4 }}
+        />
+        <motion.line
+          x1={isLeft ? 76 : 4}
+          y1="10"
+          x2={isLeft ? 0 : 80}
+          y2="10"
+          stroke="var(--ink)"
+          strokeWidth="1"
+          strokeOpacity="0.5"
+          initial={{ pathLength: 0 }}
+          animate={revealed ? { pathLength: 1 } : {}}
+          transition={{ duration: 0.42, ease: ease.luxury, delay }}
+          style={{ strokeDasharray: pathLength, strokeDashoffset: 0 }}
+        />
+      </svg>
+
+      {/* Label content */}
+      <motion.div
+        initial={{ opacity: 0, x: isLeft ? -6 : 6 }}
+        animate={revealed ? { opacity: 1, x: 0 } : {}}
+        transition={{ duration: 0.4, ease: ease.luxury, delay: delay + 0.3 }}
+        className={`max-w-[120px] xl:max-w-[160px] ${isLeft ? "text-left" : "text-right"}`}
+      >
+        <p className="text-[13px] leading-tight text-graphite">
+          {(item.subcategory || item.category || "item").toLowerCase()}
+        </p>
+        <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.16em] text-ink/60">
+          {[item.material, item.color_primary].filter(Boolean).join(" · ") ||
+            "—"}
+        </p>
+      </motion.div>
+    </div>
+  );
+}
+
+/* ─────────────────────────── Action icon ─────────────────────────── */
+
+function ActionIcon({
   label,
+  icon,
   active,
   onClick,
 }: {
   label: string;
+  icon: React.ReactNode;
   active?: boolean;
   onClick: () => void;
 }) {
@@ -535,60 +762,91 @@ function ActionPill({
     <motion.button
       {...tap}
       onClick={onClick}
-      className={`flex-1 border border-ink px-3 py-2 font-mono text-[10px] uppercase tracking-[0.16em] transition-colors ${
-        active
-          ? "bg-graphite text-bone"
-          : "text-graphite hover:bg-graphite hover:text-bone"
-      }`}
+      className="flex h-11 w-11 flex-col items-center justify-center gap-1"
+      aria-label={label}
     >
-      {label}
+      <span
+        className="transition-colors"
+        style={{ color: active ? "var(--graphite)" : "var(--ink)" }}
+      >
+        {icon}
+      </span>
+      <span
+        className="font-mono text-[9px] uppercase tracking-[0.16em] transition-colors"
+        style={{ color: active ? "var(--graphite)" : "var(--ink)" }}
+      >
+        {label}
+      </span>
     </motion.button>
   );
 }
 
-function DotIndicator({ count }: { count: number }) {
-  const [active, setActive] = useState(0);
+/* ─────────────────────────── Invite panel ─────────────────────────── */
 
-  useEffect(() => {
-    function onScroll() {
-      const cards = document.querySelectorAll<HTMLElement>("[data-look-index]");
-      let best = 0;
-      let bestDist = Infinity;
-      const mid = window.innerHeight / 2;
-      cards.forEach((el, i) => {
-        const r = el.getBoundingClientRect();
-        const d = Math.abs(r.top + r.height / 2 - mid);
-        if (d < bestDist) {
-          bestDist = d;
-          best = i;
-        }
-      });
-      setActive(best);
-    }
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
-
+function InvitePanel({
+  index,
+  totalPanels,
+  onAdd,
+}: {
+  index: number;
+  totalPanels: number;
+  onAdd: () => void;
+}) {
   return (
-    <div className="fixed right-4 top-1/2 z-30 flex -translate-y-1/2 flex-col gap-3 lg:hidden">
-      {Array.from({ length: count }).map((_, i) => (
-        <button
-          key={i}
-          aria-label={`Look ${i + 1}`}
-          onClick={() => {
-            const el = document.querySelector<HTMLElement>(
-              `[data-look-index="${i}"]`,
-            );
-            el?.scrollIntoView({ behavior: "smooth", block: "center" });
-          }}
-          className="h-2 w-2 rounded-full transition-colors"
-          style={{
-            backgroundColor: active === i ? "var(--graphite)" : "var(--ink)",
-            opacity: active === i ? 1 : 0.4,
-          }}
-        />
-      ))}
-    </div>
+    <section
+      data-look-index={index}
+      className="relative flex h-full w-full shrink-0 snap-start flex-col items-center justify-center px-8"
+      style={{
+        flexBasis: totalPanels > 1 ? `${100 / Math.min(totalPanels, 3)}%` : "100%",
+        background:
+          "linear-gradient(180deg, var(--linen) 0%, color-mix(in oklab, var(--linen), var(--ink) 4%) 100%)",
+      }}
+    >
+      <p className="font-mono text-[11px] uppercase tracking-[0.24em] text-ink">
+        LOOK {String(index + 1).padStart(2, "0")}
+      </p>
+      <h3 className="mt-6 max-w-[360px] text-center font-display text-[28px] font-light leading-[1.15] text-graphite md:text-[32px]">
+        One more piece unlocks Look {String(index + 1).padStart(2, "0")}.
+      </h3>
+      <p className="mt-4 max-w-[320px] text-center text-[14px] leading-relaxed text-ink">
+        Add another item to compose another variation.
+      </p>
+      <motion.button
+        {...tap}
+        onClick={onAdd}
+        className="mt-8 flex h-12 items-center gap-2 border border-ink px-6 text-[13px] text-graphite transition-colors hover:bg-graphite hover:text-bone"
+      >
+        <Plus className="h-4 w-4" strokeWidth={1.5} />
+        Add a piece
+      </motion.button>
+    </section>
+  );
+}
+
+/* ─────────────────────────── Empty state ─────────────────────────── */
+
+function EmptyState({ onAdd }: { onAdd: () => void }) {
+  return (
+    <section className="flex flex-1 items-center justify-center px-6">
+      <div className="max-w-[420px] text-center">
+        <p className="font-mono text-[11px] uppercase tracking-[0.24em] text-ink">
+          Nothing composed yet
+        </p>
+        <h1 className="mt-6 font-display text-[28px] font-light leading-[1.2] text-graphite">
+          Pick an occasion on Today.
+        </h1>
+        <p className="mt-4 text-[14px] leading-relaxed text-ink">
+          Choose how you want to be dressed and we'll compose three looks from
+          your wardrobe.
+        </p>
+        <motion.button
+          {...tap}
+          onClick={onAdd}
+          className="mt-8 h-12 border border-ink px-8 text-[13px] text-graphite transition-colors hover:bg-graphite hover:text-bone"
+        >
+          Add a piece
+        </motion.button>
+      </div>
+    </section>
   );
 }
