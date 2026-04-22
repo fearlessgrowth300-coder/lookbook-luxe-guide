@@ -11,6 +11,7 @@ import { useUI } from "@/lib/store";
 import { supabase } from "@/integrations/supabase/client";
 import { ease, dur, tap } from "@/lib/motion";
 import { prepareUploadAssets, type PreparationStage, type PipelineEvent } from "@/lib/thumbnail";
+import { readFileToBlob, blobToFile } from "@/lib/safe-file-read";
 import {
   DbInsertError,
   DecodeError,
