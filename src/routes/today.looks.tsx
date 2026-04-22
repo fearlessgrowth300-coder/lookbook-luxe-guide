@@ -592,13 +592,15 @@ function ItemStack({
               className="h-14 w-14 bg-bone/40 p-1.5"
               style={{ borderRadius: "2px" }}
             >
-              {item.thumbnail_path && (
+              {(item.enhanced_path || item.thumbnail_path) && (
                 <img
-                  src={
-                    supabase.storage
-                      .from("wardrobe-thumbs")
-                      .getPublicUrl(item.thumbnail_path).data.publicUrl
-                  }
+                  src={item.enhanced_path
+                    ? supabase.storage
+                        .from("wardrobe-enhanced")
+                        .getPublicUrl(item.enhanced_path).data.publicUrl
+                    : supabase.storage
+                        .from("wardrobe-thumbs")
+                        .getPublicUrl(item.thumbnail_path!).data.publicUrl}
                   alt={item.subcategory ?? ""}
                   className="h-full w-full object-contain"
                 />

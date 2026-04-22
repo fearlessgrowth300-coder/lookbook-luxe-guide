@@ -434,7 +434,7 @@ export const suggestOutfit = createServerFn({ method: "POST" })
       }
 
       payload = parsed;
-      const looks = Array.isArray(parsed.looks) ? parsed.looks : [];
+      const looks = Array.isArray(parsed.looks) ? parsed.looks.slice(0, 3) : [];
 
       // Filter to only well-formed looks before validation
       const wellFormed = looks.filter(
@@ -458,11 +458,17 @@ export const suggestOutfit = createServerFn({ method: "POST" })
       if (!distinct) reasons.push("looks_not_distinct");
 
       const allLooksValid =
-        passed.length === looks.length && distinct && passed.length >= 3;
+        looks.length >= 3 && passed.length === looks.length && distinct && passed.length >= 3;
 
       if (allLooksValid) {
         validLooks = passed;
         break;
+      }
+
+      if (looks.length === 0) {
+        reasons.push("no_looks_returned");
+      } else if (looks.length < 3) {
+        reasons.push(`returned_${looks.length}_looks`);
       }
 
       // Second pass — accept what we have
