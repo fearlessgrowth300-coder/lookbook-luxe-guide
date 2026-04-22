@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Plus, X, Upload as UploadIcon, Camera, ImageIcon, Check } from "lucide-react";
+import { Plus, X, Upload as UploadIcon, Camera, ImageIcon, Check, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { Shell } from "@/components/Shell";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
