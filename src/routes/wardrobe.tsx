@@ -343,7 +343,7 @@ function Tile({
       whileHover={{ scale: 1.02, rotate: 2 }}
       onContextMenu={(e) => {
         e.preventDefault();
-        onToggleSelect();
+        onToggleSelect?.();
       }}
       onPointerDown={() => {
         if (onToggleSelect) longPressTimer.current = window.setTimeout(onToggleSelect, 500);
