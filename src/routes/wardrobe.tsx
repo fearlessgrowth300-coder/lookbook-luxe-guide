@@ -578,7 +578,6 @@ interface StagedItem {
 
 function UploadSheet({
   onClose,
-  onPendingChange,
 }: {
   onClose: () => void;
   onPendingChange: (pending: PendingUploadItem | null) => void;
