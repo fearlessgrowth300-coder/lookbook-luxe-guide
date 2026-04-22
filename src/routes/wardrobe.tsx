@@ -564,12 +564,18 @@ function UploadSheet({
   const [dragOver, setDragOver] = useState(false);
   const [stage, setStage] = useState<UploadStage>("idle");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [pickedFile, setPickedFile] = useState<File | null>(null);
+  const [pickedPreview, setPickedPreview] = useState<string | null>(null);
+  const [pickedCategory, setPickedCategory] = useState<Category | null>(null);
+  const [pickedSubcategory, setPickedSubcategory] = useState("");
+  const [pickedFormality, setPickedFormality] = useState<number>(6);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const dropInputRef = useRef<HTMLInputElement>(null);
   const insertedItemIdRef = useRef<string | null>(null);
 
   const uploading = stage !== "idle" && stage !== "done";
+  const categorizing = !!pickedFile && stage === "idle";
 
   // Watch the wardrobe cache reactively so the sheet auto-closes when enhancement completes.
   const wardrobe = useQuery({
