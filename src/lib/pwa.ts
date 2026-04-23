@@ -1,3 +1,4 @@
+/// <reference types="vite-plugin-pwa/client" />
 /**
  * Production-only PWA registration with iframe / preview-host guard.
  *
