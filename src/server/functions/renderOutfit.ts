@@ -25,8 +25,11 @@ interface RenderInput {
 const ENHANCED_BUCKET = "wardrobe-enhanced";
 const THUMB_BUCKET = "wardrobe-thumbs";
 const RENDER_BUCKET = "outfit-renders";
+const REFERENCE_BUCKET = "user-references";
 
-const RENDER_SYSTEM_HINT = `Generate a single editorial fashion photograph in the SSENSE / Mr Porter / The Row visual style. A standing model (waist-up to full-body, neutral pose, three-quarter view, head visible) is wearing EXACTLY the items shown in the reference images, composed as one cohesive outfit. The garments must match the references precisely in color, material, cut, and proportion — do not invent details. Soft diffused studio lighting, flat #C9C5BC warm-grey backdrop, 35mm aesthetic, shallow depth of field, no props, no text, no logos, no watermarks. The model's face should be calm and unposed.`;
+const RENDER_SYSTEM_HINT = `Generate a single high-resolution editorial fashion photograph in the SSENSE / Mr Porter / The Row visual style. A standing model (full-body or three-quarter, head clearly visible, neutral pose, three-quarter view) is wearing EXACTLY the items shown in the reference garment images, composed as one cohesive outfit. The garments must match the references precisely in color, material, cut, and proportion — do not invent details. Soft diffused studio lighting, flat #C9C5BC warm-grey backdrop, 35mm aesthetic, sharp focus, crisp detail, no props, no text, no logos, no watermarks.`;
+
+const FACE_CONSISTENCY_HINT = `IMPORTANT: The first attached image is a reference photo of the model's face and identity. Reproduce the SAME person — same facial features, skin tone, hair, and build — in the generated image. Keep the face calm, unposed, and clearly recognizable as the same individual across renders. Do not stylize or change the face.`;
 
 export const renderOutfit = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
