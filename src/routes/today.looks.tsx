@@ -153,6 +153,13 @@ function ThreeLooksPage() {
         if (requestedRef.current.has(o.id)) continue;
         requestedRef.current.add(o.id);
         try {
+          qc.setQueryData(["outfit-batch", searchBatch], (current: OutfitRecord[] | undefined) =>
+            current?.map((entry) =>
+              entry.id === o.id
+                ? { ...entry, render_status: "rendering" }
+                : entry,
+            ) ?? current,
+          );
           await renderOutfit({ data: { outfit_id: o.id } });
           qc.invalidateQueries({ queryKey: ["outfit-batch", searchBatch] });
         } catch (err) {

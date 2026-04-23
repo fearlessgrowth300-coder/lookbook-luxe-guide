@@ -87,6 +87,14 @@ function OutfitPage() {
     if (o.render_status === "failed") return;
     if (renderRequestedRef.current) return;
     renderRequestedRef.current = true;
+    qc.setQueryData(["outfit", id], (current: typeof o | undefined) =>
+      current
+        ? {
+            ...current,
+            render_status: "rendering",
+          }
+        : current,
+    );
     renderOutfit({ data: { outfit_id: o.id } })
       .then(() => qc.invalidateQueries({ queryKey: ["outfit", id] }))
       .catch((err) => console.error("[renderOutfit] failed", err));
