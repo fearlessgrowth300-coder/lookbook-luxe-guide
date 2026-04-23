@@ -206,41 +206,34 @@ function OutfitPage() {
     <Shell>
       <div className="mx-auto max-w-[1280px] px-6 py-8 md:px-12 lg:px-24">
         <div className="grid gap-12 lg:grid-cols-[3fr_2fr]">
-          {/* Composition view */}
-          <div className="relative min-h-[70vh] bg-bone">
+          {/* Composition view — model wearing the outfit + callout labels */}
+          <div className="relative flex min-h-[70vh] flex-col bg-bone">
             <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-ink">
               LOOK · {String(seq).padStart(3, "0")}
             </p>
 
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={o.id}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: dur.hover }}
-                className="mt-6 grid gap-6"
-                style={{
-                  gridTemplateColumns: "1fr 2fr 1fr",
-                  gridTemplateRows: "auto auto auto",
-                  gridTemplateAreas: `
-                    "outerwear top accessory"
-                    "outerwear bottom accessory"
-                    ".         shoes ."
-                  `,
+            <motion.div
+              key={o.id}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: dur.page, ease: ease.luxury }}
+              className="mt-6 flex flex-1 items-center justify-center"
+              style={{
+                background:
+                  "linear-gradient(180deg, var(--linen) 0%, color-mix(in oklab, var(--linen), var(--ink) 4%) 100%)",
+              }}
+            >
+              <LookHero
+                outfit={{
+                  id: o.id,
+                  name: o.name ?? null,
+                  render_path: o.render_path ?? null,
+                  render_status: o.render_status ?? null,
                 }}
-              >
-                {items.map((item, i) => (
-                  <ItemFrame
-                    key={item.id}
-                    item={item}
-                    index={i}
-                    dimmed={hoveredId !== null && hoveredId !== item.id}
-                    onHover={(v) => setHoveredId(v ? item.id : null)}
-                  />
-                ))}
-              </motion.div>
-            </AnimatePresence>
+                items={items}
+                size="lg"
+              />
+            </motion.div>
           </div>
 
           {/* Rationale panel */}
