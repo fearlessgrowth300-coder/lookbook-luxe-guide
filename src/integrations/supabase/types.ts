@@ -70,6 +70,8 @@ export type Database = {
           name: string | null
           occasion: string | null
           rationale: string | null
+          render_path: string | null
+          render_status: string | null
           saved: boolean | null
           user_id: string
           user_rating: number | null
@@ -85,6 +87,8 @@ export type Database = {
           name?: string | null
           occasion?: string | null
           rationale?: string | null
+          render_path?: string | null
+          render_status?: string | null
           saved?: boolean | null
           user_id: string
           user_rating?: number | null
@@ -100,6 +104,8 @@ export type Database = {
           name?: string | null
           occasion?: string | null
           rationale?: string | null
+          render_path?: string | null
+          render_status?: string | null
           saved?: boolean | null
           user_id?: string
           user_rating?: number | null
