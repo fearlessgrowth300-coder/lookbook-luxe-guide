@@ -7,8 +7,12 @@ import {
 } from "@tanstack/react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "sonner";
+import { useEffect } from "react";
 import { AuthProvider } from "@/lib/auth";
 import { installServerFnAuth } from "@/lib/server-fn-auth";
+import { DesktopBlocker } from "@/components/DesktopBlocker";
+import { InstallPrompt } from "@/components/InstallPrompt";
+import { registerPwa } from "@/lib/pwa";
 import appCss from "../styles.css?url";
 
 // Install the fetch interceptor that attaches the Supabase access token to
@@ -44,7 +48,15 @@ export const Route = createRootRouteWithContext<RouterContext>()({
   head: () => ({
     meta: [
       { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1" },
+      {
+        name: "viewport",
+        content:
+          "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover",
+      },
+      { name: "mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-status-bar-style", content: "default" },
+      { name: "theme-color", content: "#F5F1EA" },
       { title: "Atelier — Your wardrobe, styled daily" },
       {
         name: "description",
@@ -60,7 +72,12 @@ export const Route = createRootRouteWithContext<RouterContext>()({
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
-    links: [{ rel: "stylesheet", href: appCss }],
+    links: [
+      { rel: "stylesheet", href: appCss },
+      { rel: "manifest", href: "/manifest.webmanifest" },
+      { rel: "apple-touch-icon", href: "/apple-touch-icon.png" },
+      { rel: "icon", type: "image/png", sizes: "192x192", href: "/pwa-192.png" },
+    ],
   }),
   shellComponent: RootShell,
   component: RootComponent,
@@ -83,10 +100,20 @@ function RootShell({ children }: { children: React.ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+
+  // Production-only PWA: registers the service worker on the published
+  // URL only. No-op inside Lovable preview iframes / preview hosts.
+  useEffect(() => {
+    void registerPwa();
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <Outlet />
+        <DesktopBlocker>
+          <Outlet />
+          <InstallPrompt />
+        </DesktopBlocker>
         <Toaster
           position="bottom-center"
           toastOptions={{

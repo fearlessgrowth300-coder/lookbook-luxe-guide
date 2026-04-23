@@ -85,7 +85,7 @@ export function LookHero({
       ? "max-h-[min(90vh,1120px)]"
       : "max-h-[min(80vh,860px)]";
   const sideW =
-    size === "lg" ? "w-[82px] sm:w-[110px] md:w-[136px]" : "w-[64px] sm:w-[88px] md:w-[112px]";
+    size === "lg" ? "w-[82px] sm:w-[110px]" : "w-[64px] sm:w-[88px]";
   const heroFrameStyle =
     size === "lg"
       ? { minHeight: "min(90vh, 1120px)", width: "min(78vw, 1080px)" }

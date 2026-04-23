@@ -28,7 +28,7 @@ export function Shell({ children }: { children: ReactNode }) {
     <div className="min-h-screen bg-bone text-graphite">
       {/* Top bar */}
       <header className="sticky top-0 z-40 h-16 border-b border-linen bg-bone/95 backdrop-blur">
-        <div className="mx-auto flex h-full max-w-[1280px] items-center justify-between px-6 md:px-12 lg:px-24">
+        <div className="mx-auto flex h-full max-w-[1280px] items-center justify-between px-6">
           <Link
             to="/today"
             className="font-display text-[20px] font-normal tracking-tight text-graphite"
@@ -38,7 +38,7 @@ export function Shell({ children }: { children: ReactNode }) {
           </Link>
 
           {/* Desktop nav */}
-          <nav className="hidden items-center gap-12 md:flex" aria-label="Primary">
+          <nav className="hidden items-center gap-12" aria-label="Primary">
             {NAV.map(({ to, label }) => {
               const active = pathname.startsWith(to);
               return (
@@ -79,14 +79,14 @@ export function Shell({ children }: { children: ReactNode }) {
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -12 }}
         transition={{ duration: dur.page, ease: ease.luxury }}
-        className="pb-24 md:pb-0"
+        className="pb-24"
       >
         {children}
       </motion.main>
 
       {/* Mobile tab bar */}
       <nav
-        className="fixed bottom-0 left-0 right-0 z-40 flex h-16 items-stretch border-t border-linen bg-bone/95 backdrop-blur md:hidden"
+        className="fixed bottom-0 left-0 right-0 z-40 flex h-16 items-stretch border-t border-linen bg-bone/95 backdrop-blur"
         aria-label="Primary mobile"
       >
         {NAV.map(({ to, label, icon: Icon }) => {

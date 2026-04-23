@@ -308,7 +308,7 @@ function ThreeLooksPage() {
       ) : (
         <div
           ref={pagerRef}
-          className="atelier-pager flex flex-1 snap-x snap-mandatory overflow-x-auto overflow-y-hidden lg:snap-none lg:overflow-x-hidden"
+          className="atelier-pager flex flex-1 snap-x snap-mandatory overflow-x-auto overflow-y-hidden"
           style={{ scrollbarWidth: "none" }}
         >
           {panels.map((p, i) =>
@@ -439,7 +439,7 @@ function LookPanel({
       }}
     >
       {/* Top: eyebrow + name */}
-      <div className="px-4 pt-5 text-center md:px-6 md:pt-8">
+      <div className="px-4 pt-5 text-center">
         <motion.p
           initial={{ opacity: 0, y: 6 }}
           animate={revealed ? { opacity: 1, y: 0 } : {}}
@@ -452,14 +452,14 @@ function LookPanel({
           initial={{ opacity: 0, y: 8 }}
           animate={revealed ? { opacity: 1, y: 0 } : {}}
           transition={{ duration: 0.52, delay: 0.08, ease: ease.luxury }}
-          className="mt-3 font-display text-[28px] font-normal leading-[1.1] text-graphite md:text-[36px]"
+          className="mt-3 font-display text-[28px] font-normal leading-[1.1] text-graphite"
         >
           {outfit.name ?? `Look ${index + 1}`}
         </motion.h2>
       </div>
 
       {/* Composition zone — LOOK 6 style: AI-rendered model image with callout labels */}
-      <div className="relative flex flex-1 items-center justify-center overflow-hidden px-1 py-2 sm:px-2 md:px-4 md:py-4">
+      <div className="relative flex flex-1 items-center justify-center overflow-hidden px-1 py-2 sm:px-2">
         <LookHero outfit={outfit} items={items} revealed={revealed} size="md" />
       </div>
 
@@ -470,7 +470,7 @@ function LookPanel({
           initial={{ opacity: 0 }}
           animate={revealed ? { opacity: 1 } : {}}
           transition={{ duration: 0.5, delay: 0.7, ease: ease.luxury }}
-          className="mx-auto mt-2 max-w-[480px] px-6 text-center font-display text-[16px] font-light italic leading-[1.45] text-graphite md:text-[18px]"
+          className="mx-auto mt-2 max-w-[480px] px-6 text-center font-display text-[16px] font-light italic leading-[1.45] text-graphite"
           style={{
             display: "-webkit-box",
             WebkitLineClamp: 3,
@@ -576,7 +576,7 @@ function InvitePanel({
       <p className="font-mono text-[11px] uppercase tracking-[0.24em] text-ink">
         LOOK {String(index + 1).padStart(2, "0")}
       </p>
-      <h3 className="mt-6 max-w-[360px] text-center font-display text-[28px] font-light leading-[1.15] text-graphite md:text-[32px]">
+      <h3 className="mt-6 max-w-[360px] text-center font-display text-[28px] font-light leading-[1.15] text-graphite">
         One more piece unlocks Look {String(index + 1).padStart(2, "0")}.
       </h3>
       <p className="mt-4 max-w-[320px] text-center text-[14px] leading-relaxed text-ink">

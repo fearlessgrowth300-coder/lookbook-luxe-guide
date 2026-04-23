@@ -13,6 +13,7 @@ import { ease, dur, tap } from "@/lib/motion";
 import { type Occasion } from "@/server/mock-ai";
 import { suggestOutfit } from "@/server/functions/suggestOutfit";
 import { generateDailyPrompt } from "@/server/functions/generateDailyPrompt";
+import { markInstallPromptReady } from "@/components/InstallPrompt";
 
 const ALL_OCC_IDS = ["office", "casual", "evening", "athletic", "formal", "travel"] as const;
 
@@ -242,6 +243,8 @@ function TodayPage() {
         return;
       }
 
+      // First successful generation → arm the install prompt strip.
+      markInstallPromptReady();
       navigate({ to: "/today/looks", search: { batch: result.batch_id } });
     } catch (e) {
       console.error("[handleGenerate] threw:", e);
@@ -259,7 +262,7 @@ function TodayPage() {
   return (
     <Shell>
       {/* Hero */}
-      <section className="flex min-h-[calc(100vh-64px)] flex-col items-center justify-center px-6 md:min-h-[calc(100vh-64px)] md:px-12">
+      <section className="flex min-h-[calc(100vh-64px)] flex-col items-center justify-center px-6">
         <div className="w-full max-w-[680px]">
           <motion.p
             initial={{ opacity: 0 }}
@@ -270,7 +273,7 @@ function TodayPage() {
             {dateLabel}
           </motion.p>
 
-          <h1 className="mt-8 font-display text-[36px] font-light leading-[1.1] text-graphite md:text-[56px]">
+          <h1 className="mt-8 font-display text-[36px] font-light leading-[1.1] text-graphite">
             {promptQuery.isLoading || !promptText ? (
               <span className="inline-block h-[1.1em] w-[80%] atelier-shimmer" />
             ) : (
@@ -395,7 +398,7 @@ function TodayPage() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.9, duration: dur.hover }}
-          className="mx-auto flex h-14 max-w-[1280px] items-stretch px-6 md:px-12 lg:px-24"
+          className="mx-auto flex h-14 max-w-[1280px] items-stretch px-6"
         >
           <Cell icon={<Cloud className="h-4 w-4" strokeWidth={1.25} />} label="14° Overcast" />
           <Cell icon={<Calendar className="h-4 w-4" strokeWidth={1.25} />} label="No events" />
@@ -418,7 +421,7 @@ function TodayPage() {
 
       {/* Recent outfits */}
       {(recentQuery.data?.length ?? 0) > 0 && (
-        <section className="px-6 py-16 md:px-12 lg:px-24">
+        <section className="px-6 py-16">
           <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-ink">
             Recent looks
           </p>
