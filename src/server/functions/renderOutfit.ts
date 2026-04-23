@@ -27,9 +27,16 @@ const THUMB_BUCKET = "wardrobe-thumbs";
 const RENDER_BUCKET = "outfit-renders";
 const REFERENCE_BUCKET = "user-references";
 
-const RENDER_SYSTEM_HINT = `Generate a single high-resolution editorial fashion photograph in the SSENSE / Mr Porter / The Row visual style. A standing model (full-body or three-quarter, head clearly visible, neutral pose, three-quarter view) is wearing EXACTLY the items shown in the reference garment images, composed as one cohesive outfit. The garments must match the references precisely in color, material, cut, and proportion — do not invent details. Soft diffused studio lighting, flat #C9C5BC warm-grey backdrop, 35mm aesthetic, sharp focus, crisp detail, no props, no text, no logos, no watermarks.`;
+const RENDER_SYSTEM_HINT = `Generate a single high-resolution editorial fashion photograph in the SSENSE / Mr Porter / The Row visual style. A standing model wearing EXACTLY the items shown in the reference garment images, composed as one cohesive outfit. The garments must match the references precisely in color, material, cut, and proportion — do not invent details. Soft diffused studio lighting, flat #C9C5BC warm-grey backdrop, 35mm aesthetic, sharp focus throughout, crisp detail, no props, no text, no logos, no watermarks.`;
 
-const FACE_CONSISTENCY_HINT = `IMPORTANT: The first attached image is a reference photo of the model's face and identity. Reproduce the SAME person — same facial features, skin tone, hair, and build — in the generated image. Keep the face calm, unposed, and clearly recognizable as the same individual across renders. Do not stylize or change the face.`;
+const FRAMING_HINT = `STRICT FRAMING RULES (do not violate):
+- Frame the subject from the top of the head to mid-thigh or to the feet — NEVER crop the face or top of the head.
+- The entire face must be fully visible inside the frame with at least 8% padding above the head.
+- Sharp tack-focus on the eyes; both eyes clearly in focus and well-lit. Other elements may have shallow depth of field but the eyes must be sharpest.
+- Camera at eye level, subject centered horizontally, three-quarter or front pose.
+- High resolution, no motion blur, no soft-focus filter, no heavy bokeh on the face.`;
+
+const FACE_CONSISTENCY_HINT = `IDENTITY: The first attached image is a reference photo of the model. Reproduce the SAME person — same facial structure, eyes, nose, mouth, skin tone, hair color and hairstyle, and build. The face must be clearly recognizable as the same individual across renders. Do not stylize, smooth, or alter the face.`;
 
 export const renderOutfit = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -56,10 +63,10 @@ export const renderOutfit = createServerFn({ method: "POST" })
       return { ok: true as const, render_path: outfit.render_path, cached: true };
     }
 
-    // Mark as rendering so the UI shows a "composing" state
+    // Mark as rendering so the UI shows a "composing" state. Clear stale error.
     await supabaseAdmin
       .from("outfits")
-      .update({ render_status: "rendering" })
+      .update({ render_status: "rendering", render_error: null })
       .eq("id", outfit.id);
 
     // 2. Load items
@@ -134,11 +141,13 @@ export const renderOutfit = createServerFn({ method: "POST" })
       .join("\n");
 
     const promptText = `${RENDER_SYSTEM_HINT}
+
+${FRAMING_HINT}
 ${referenceUrl ? `\n${FACE_CONSISTENCY_HINT}\n` : ""}
 The model is wearing these specific items (each shown in the attached garment reference images, in order):
 ${itemList}
 
-Compose all items together on the same model in a single sharp, high-resolution frame. Keep proportions realistic and the face clearly visible and unaltered. Three-quarter or full-body framing, centered subject.`;
+Compose all items together on the same model in a single sharp, high-resolution frame. Three-quarter or full-body framing — head and full face must be inside the frame.`;
 
     const parts: Array<{ type: "text" | "image_url"; text?: string; image_url?: { url: string } }> = [
       { type: "text", text: promptText },
@@ -150,23 +159,48 @@ Compose all items together on the same model in a single sharp, high-resolution 
       parts.push({ type: "image_url", image_url: { url: r.url } });
     }
 
-    // 6. Call the gateway — use Nano Banana 2 (sharper, pro-quality, fast)
-    let dataUrl: string;
-    try {
-      dataUrl = await generateImage({
-        model: "google/gemini-3.1-flash-image-preview",
-        parts,
-        timeoutMs: 120_000,
-      });
-    } catch (err) {
-      const code =
-        err instanceof ImageGenError ? err.code : "unknown";
-      console.error("[renderOutfit] image gen failed", code, err);
+    // 6. Call the gateway with exponential backoff retry. Total attempts: 3.
+    //    Backoff schedule: 0ms, 800ms, 2400ms (jittered).
+    const MAX_ATTEMPTS = 3;
+    let dataUrl: string | null = null;
+    let lastError: { code: string; message: string } | null = null;
+
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        dataUrl = await generateImage({
+          model: "google/gemini-3.1-flash-image-preview",
+          parts,
+          timeoutMs: 120_000,
+        });
+        lastError = null;
+        break;
+      } catch (err) {
+        const code = err instanceof ImageGenError ? err.code : "unknown";
+        const message =
+          err instanceof Error ? err.message : "Unknown image gen error";
+        lastError = { code, message };
+        console.error(
+          `[renderOutfit] image gen attempt ${attempt}/${MAX_ATTEMPTS} failed`,
+          code,
+          message,
+        );
+        // Don't retry on terminal errors
+        if (code === "payment_required") break;
+        if (attempt < MAX_ATTEMPTS) {
+          const base = 800 * Math.pow(2, attempt - 1); // 800, 1600, 3200…
+          const jitter = Math.floor(Math.random() * 400);
+          await new Promise((r) => setTimeout(r, Math.min(base + jitter, 5000)));
+        }
+      }
+    }
+
+    if (!dataUrl) {
+      const errMsg = `${lastError?.code ?? "unknown"}: ${lastError?.message ?? "no image returned"}`;
       await supabaseAdmin
         .from("outfits")
-        .update({ render_status: "failed" })
+        .update({ render_status: "failed", render_error: errMsg })
         .eq("id", outfit.id);
-      return { error: "render_failed" as const, code };
+      return { error: "render_failed" as const, code: lastError?.code ?? "unknown", message: errMsg };
     }
 
     // 6. Decode + upload
@@ -185,7 +219,10 @@ Compose all items together on the same model in a single sharp, high-resolution 
       console.error("[renderOutfit] upload failed", uploadErr);
       await supabaseAdmin
         .from("outfits")
-        .update({ render_status: "failed" })
+        .update({
+          render_status: "failed",
+          render_error: `upload_failed: ${uploadErr.message}`,
+        })
         .eq("id", outfit.id);
       return { error: "upload_failed" as const };
     }
@@ -193,7 +230,7 @@ Compose all items together on the same model in a single sharp, high-resolution 
     // 7. Persist
     await supabaseAdmin
       .from("outfits")
-      .update({ render_path: path, render_status: "ready" })
+      .update({ render_path: path, render_status: "ready", render_error: null })
       .eq("id", outfit.id);
 
     return { ok: true as const, render_path: path };
