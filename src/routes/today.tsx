@@ -6,6 +6,7 @@ import { Cloud, Calendar } from "lucide-react";
 import { toast } from "sonner";
 import { Shell } from "@/components/Shell";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { ThreeLooksSheet } from "@/components/ThreeLooksSheet";
 import { useAuth } from "@/lib/auth";
 import { useUI, type Mood } from "@/lib/store";
 import { supabase } from "@/integrations/supabase/client";
@@ -25,13 +26,15 @@ export const Route = createFileRoute("/today")({
   ),
   validateSearch: (
     search: Record<string, unknown>,
-  ): { occasion?: Occasion } => {
+  ): { occasion?: Occasion; batch?: string } => {
     const occ = search.occasion;
+    const batch = search.batch;
     return {
       occasion:
         typeof occ === "string" && (ALL_OCC_IDS as readonly string[]).includes(occ)
           ? (occ as Occasion)
           : undefined,
+      batch: typeof batch === "string" && batch.length > 0 ? batch : undefined,
     };
   },
   head: () => ({ meta: [{ title: "Today — Atelier" }] }),
