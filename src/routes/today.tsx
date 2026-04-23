@@ -495,6 +495,14 @@ function TodayPage() {
           }}
         />
       )}
+
+      {/* Three Looks bottom sheet */}
+      <ThreeLooksSheet
+        open={sheetOpen}
+        batchId={activeBatch}
+        onClose={closeSheet}
+        onBatchChanged={(b) => setActiveBatch(b)}
+      />
     </Shell>
   );
 }

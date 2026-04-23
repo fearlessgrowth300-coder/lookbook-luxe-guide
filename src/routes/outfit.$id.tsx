@@ -258,7 +258,7 @@ function OutfitPage() {
 
             {o.batch_id && (
               <Link
-                to="/today/looks"
+                to="/today"
                 search={{ batch: o.batch_id }}
                 className="mt-4 inline-flex w-fit items-center gap-2 font-mono text-[10px] uppercase tracking-[0.2em] text-ink transition-colors hover:text-graphite"
               >
