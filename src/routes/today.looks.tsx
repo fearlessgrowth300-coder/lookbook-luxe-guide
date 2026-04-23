@@ -447,10 +447,7 @@ function LookPanel({
     }
   }
 
-  // Split items into left/right callout sides
-  const leftCats = new Set(["top", "outerwear", "dress"]);
-  const leftItems = items.filter((i) => leftCats.has(i.category ?? ""));
-  const rightItems = items.filter((i) => !leftCats.has(i.category ?? ""));
+  // (Items are split into left/right callout sides inside LookHero)
 
   return (
     <section
