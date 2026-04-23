@@ -17,6 +17,7 @@ import { useAuth } from "@/lib/auth";
 import { supabase } from "@/integrations/supabase/client";
 import { ease, dur, tap } from "@/lib/motion";
 import { suggestOutfit } from "@/server/functions/suggestOutfit";
+import { renderOutfit } from "@/server/functions/renderOutfit";
 import { type Occasion } from "@/server/mock-ai";
 
 const OCCASIONS: Occasion[] = [
@@ -68,6 +69,8 @@ interface OutfitRecord {
   name: string | null;
   look_sequence: number | null;
   batch_id: string | null;
+  render_path: string | null;
+  render_status: string | null;
 }
 
 function ThreeLooksPage() {
@@ -105,11 +108,22 @@ function ThreeLooksPage() {
   const batchQuery = useQuery({
     queryKey: ["outfit-batch", searchBatch],
     enabled: !!searchBatch && !!user,
+    // Poll every 4s while any outfit is still rendering
+    refetchInterval: (query) => {
+      const data = query.state.data as OutfitRecord[] | undefined;
+      if (!data || data.length === 0) return 4000;
+      const stillPending = data.some(
+        (o) =>
+          !o.render_path &&
+          o.render_status !== "failed",
+      );
+      return stillPending ? 4000 : false;
+    },
     queryFn: async () => {
       const { data, error } = await supabase
         .from("outfits")
         .select(
-          "id, item_ids, rationale, occasion, saved, name, look_sequence, batch_id",
+          "id, item_ids, rationale, occasion, saved, name, look_sequence, batch_id, render_path, render_status",
         )
         .eq("batch_id", searchBatch!)
         .order("look_sequence", { ascending: true });
@@ -118,11 +132,40 @@ function ThreeLooksPage() {
     },
   });
 
+  // Trigger AI render for each outfit that hasn't started yet (fire-and-forget,
+  // sequential to keep gateway load low). Each id is requested only once per
+  // mount via the requestedRef.
+  const requestedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    if (batchQuery.data) {
-      setOutfits(batchQuery.data);
-    }
+    if (!batchQuery.data || batchQuery.data.length === 0) return;
+    const toRender = batchQuery.data.filter(
+      (o) =>
+        !o.render_path &&
+        o.render_status !== "rendering" &&
+        o.render_status !== "failed" &&
+        !requestedRef.current.has(o.id),
+    );
+    if (toRender.length === 0) return;
+
+    (async () => {
+      for (const o of toRender) {
+        if (requestedRef.current.has(o.id)) continue;
+        requestedRef.current.add(o.id);
+        try {
+          await renderOutfit({ data: { outfit_id: o.id } });
+          qc.invalidateQueries({ queryKey: ["outfit-batch", searchBatch] });
+        } catch (err) {
+          console.error("[renderOutfit] failed for", o.id, err);
+        }
+      }
+    })();
+  }, [batchQuery.data, qc, searchBatch]);
+
+  // Keep local state synced with the (possibly polling) query
+  useEffect(() => {
+    if (batchQuery.data) setOutfits(batchQuery.data);
   }, [batchQuery.data]);
+
 
   const effectiveOccasion: Occasion = useMemo(() => {
     const fromBatch = outfits[0]?.occasion;
@@ -404,10 +447,7 @@ function LookPanel({
     }
   }
 
-  // Split items into left/right callout sides
-  const leftCats = new Set(["top", "outerwear", "dress"]);
-  const leftItems = items.filter((i) => leftCats.has(i.category ?? ""));
-  const rightItems = items.filter((i) => !leftCats.has(i.category ?? ""));
+  // (Items are split into left/right callout sides inside LookHero)
 
   return (
     <section
@@ -439,67 +479,17 @@ function LookPanel({
         </motion.h2>
       </div>
 
-      {/* Composition zone */}
-      <div className="relative flex flex-1 items-center justify-center px-2 py-6 md:px-6">
-        <div className="relative w-full max-w-[640px]">
-          {/* Left labels (lg+) */}
-          <div className="pointer-events-none absolute inset-y-0 left-0 hidden w-[140px] flex-col justify-around lg:flex xl:w-[180px]">
-            {leftItems.map((item, i) => (
-              <CalloutLabel
-                key={item.id}
-                item={item}
-                side="left"
-                revealed={revealed}
-                delay={0.4 + i * 0.16}
-              />
-            ))}
-          </div>
-
-          {/* Center stack */}
-          <div className="mx-auto w-full max-w-[280px] md:max-w-[320px]">
-            <ItemStack
-              items={stack.main}
-              accessories={stack.accessories}
-              animOrder={animOrder}
-              revealed={revealed}
-            />
-          </div>
-
-          {/* Right labels (lg+) */}
-          <div className="pointer-events-none absolute inset-y-0 right-0 hidden w-[140px] flex-col justify-around lg:flex xl:w-[180px]">
-            {rightItems.map((item, i) => (
-              <CalloutLabel
-                key={item.id}
-                item={item}
-                side="right"
-                revealed={revealed}
-                delay={0.5 + i * 0.16}
-              />
-            ))}
-          </div>
-        </div>
+      {/* Composition zone — LOOK 6 style: AI-rendered model image with callout labels */}
+      <div className="relative flex flex-1 items-center justify-center px-3 py-4 md:px-6 md:py-6">
+        <LookHero
+          outfit={outfit}
+          items={items}
+          stack={stack}
+          animOrder={animOrder}
+          revealed={revealed}
+        />
       </div>
 
-      {/* Mobile/tablet item legend (no callouts at narrow widths) */}
-      <div className="lg:hidden">
-        <ul className="mx-auto max-w-[420px] space-y-1.5 px-6">
-          {items.map((item) => (
-            <li
-              key={item.id}
-              className="flex items-baseline justify-between gap-3 border-b border-bone/70 pb-1.5"
-            >
-              <span className="text-[13px] text-graphite">
-                {(item.subcategory || item.category || "—").toLowerCase()}
-              </span>
-              <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink/70">
-                {[item.material, item.color_primary]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </span>
-            </li>
-          ))}
-        </ul>
-      </div>
 
       {/* Rationale */}
       {outfit.rationale && (
