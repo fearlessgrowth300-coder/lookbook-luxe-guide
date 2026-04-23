@@ -161,6 +161,12 @@ function ThreeLooksPage() {
     })();
   }, [batchQuery.data, qc, searchBatch]);
 
+  // Keep local state synced with the (possibly polling) query
+  useEffect(() => {
+    if (batchQuery.data) setOutfits(batchQuery.data);
+  }, [batchQuery.data]);
+
+
   const effectiveOccasion: Occasion = useMemo(() => {
     const fromBatch = outfits[0]?.occasion;
     if (fromBatch && (OCCASIONS as string[]).includes(fromBatch)) {
