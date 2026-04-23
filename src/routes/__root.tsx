@@ -71,6 +71,12 @@ export const Route = createRootRouteWithContext<RouterContext>()({
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
+      { name: "twitter:title", content: "Atelier — Your wardrobe, styled daily" },
+      { name: "description", content: "Atelier Style Studio is a luxury wardrobe styling app that generates daily outfit recommendations." },
+      { property: "og:description", content: "Atelier Style Studio is a luxury wardrobe styling app that generates daily outfit recommendations." },
+      { name: "twitter:description", content: "Atelier Style Studio is a luxury wardrobe styling app that generates daily outfit recommendations." },
+      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/c9d85af7-1203-4ac1-b603-36ee00698fd9/id-preview-2c2c372c--23571140-b0a7-41a7-9dd5-c0ae7cd07ff4.lovable.app-1776984941296.png" },
+      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/c9d85af7-1203-4ac1-b603-36ee00698fd9/id-preview-2c2c372c--23571140-b0a7-41a7-9dd5-c0ae7cd07ff4.lovable.app-1776984941296.png" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
