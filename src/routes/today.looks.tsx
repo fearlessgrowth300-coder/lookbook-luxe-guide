@@ -482,67 +482,17 @@ function LookPanel({
         </motion.h2>
       </div>
 
-      {/* Composition zone */}
-      <div className="relative flex flex-1 items-center justify-center px-2 py-6 md:px-6">
-        <div className="relative w-full max-w-[640px]">
-          {/* Left labels (lg+) */}
-          <div className="pointer-events-none absolute inset-y-0 left-0 hidden w-[140px] flex-col justify-around lg:flex xl:w-[180px]">
-            {leftItems.map((item, i) => (
-              <CalloutLabel
-                key={item.id}
-                item={item}
-                side="left"
-                revealed={revealed}
-                delay={0.4 + i * 0.16}
-              />
-            ))}
-          </div>
-
-          {/* Center stack */}
-          <div className="mx-auto w-full max-w-[280px] md:max-w-[320px]">
-            <ItemStack
-              items={stack.main}
-              accessories={stack.accessories}
-              animOrder={animOrder}
-              revealed={revealed}
-            />
-          </div>
-
-          {/* Right labels (lg+) */}
-          <div className="pointer-events-none absolute inset-y-0 right-0 hidden w-[140px] flex-col justify-around lg:flex xl:w-[180px]">
-            {rightItems.map((item, i) => (
-              <CalloutLabel
-                key={item.id}
-                item={item}
-                side="right"
-                revealed={revealed}
-                delay={0.5 + i * 0.16}
-              />
-            ))}
-          </div>
-        </div>
+      {/* Composition zone — LOOK 6 style: AI-rendered model image with callout labels */}
+      <div className="relative flex flex-1 items-center justify-center px-3 py-4 md:px-6 md:py-6">
+        <LookHero
+          outfit={outfit}
+          items={items}
+          stack={stack}
+          animOrder={animOrder}
+          revealed={revealed}
+        />
       </div>
 
-      {/* Mobile/tablet item legend (no callouts at narrow widths) */}
-      <div className="lg:hidden">
-        <ul className="mx-auto max-w-[420px] space-y-1.5 px-6">
-          {items.map((item) => (
-            <li
-              key={item.id}
-              className="flex items-baseline justify-between gap-3 border-b border-bone/70 pb-1.5"
-            >
-              <span className="text-[13px] text-graphite">
-                {(item.subcategory || item.category || "—").toLowerCase()}
-              </span>
-              <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink/70">
-                {[item.material, item.color_primary]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </span>
-            </li>
-          ))}
-        </ul>
-      </div>
 
       {/* Rationale */}
       {outfit.rationale && (
