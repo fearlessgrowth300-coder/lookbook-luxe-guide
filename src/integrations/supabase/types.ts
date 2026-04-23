@@ -121,6 +121,7 @@ export type Database = {
           display_name: string | null
           favorite_colors: string[] | null
           id: string
+          reference_photo_path: string | null
           style_archetype: string | null
         }
         Insert: {
@@ -130,6 +131,7 @@ export type Database = {
           display_name?: string | null
           favorite_colors?: string[] | null
           id: string
+          reference_photo_path?: string | null
           style_archetype?: string | null
         }
         Update: {
@@ -139,6 +141,7 @@ export type Database = {
           display_name?: string | null
           favorite_colors?: string[] | null
           id?: string
+          reference_photo_path?: string | null
           style_archetype?: string | null
         }
         Relationships: []

@@ -25,8 +25,11 @@ interface RenderInput {
 const ENHANCED_BUCKET = "wardrobe-enhanced";
 const THUMB_BUCKET = "wardrobe-thumbs";
 const RENDER_BUCKET = "outfit-renders";
+const REFERENCE_BUCKET = "user-references";
 
-const RENDER_SYSTEM_HINT = `Generate a single editorial fashion photograph in the SSENSE / Mr Porter / The Row visual style. A standing model (waist-up to full-body, neutral pose, three-quarter view, head visible) is wearing EXACTLY the items shown in the reference images, composed as one cohesive outfit. The garments must match the references precisely in color, material, cut, and proportion — do not invent details. Soft diffused studio lighting, flat #C9C5BC warm-grey backdrop, 35mm aesthetic, shallow depth of field, no props, no text, no logos, no watermarks. The model's face should be calm and unposed.`;
+const RENDER_SYSTEM_HINT = `Generate a single high-resolution editorial fashion photograph in the SSENSE / Mr Porter / The Row visual style. A standing model (full-body or three-quarter, head clearly visible, neutral pose, three-quarter view) is wearing EXACTLY the items shown in the reference garment images, composed as one cohesive outfit. The garments must match the references precisely in color, material, cut, and proportion — do not invent details. Soft diffused studio lighting, flat #C9C5BC warm-grey backdrop, 35mm aesthetic, sharp focus, crisp detail, no props, no text, no logos, no watermarks.`;
+
+const FACE_CONSISTENCY_HINT = `IMPORTANT: The first attached image is a reference photo of the model's face and identity. Reproduce the SAME person — same facial features, skin tone, hair, and build — in the generated image. Keep the face calm, unposed, and clearly recognizable as the same individual across renders. Do not stylize or change the face.`;
 
 export const renderOutfit = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -106,32 +109,54 @@ export const renderOutfit = createServerFn({ method: "POST" })
       return { error: "no_item_images" as const };
     }
 
-    // 4. Build the prompt — text first, then each item image as a reference.
+    // 4. Try to load the user's reference photo (private bucket → signed URL).
+    let referenceUrl: string | null = null;
+    try {
+      const { data: profile } = await supabaseAdmin
+        .from("profiles")
+        .select("reference_photo_path")
+        .eq("id", userId)
+        .maybeSingle();
+      const refPath = profile?.reference_photo_path;
+      if (refPath) {
+        const { data: signed } = await supabaseAdmin.storage
+          .from(REFERENCE_BUCKET)
+          .createSignedUrl(refPath, 60 * 10);
+        if (signed?.signedUrl) referenceUrl = signed.signedUrl;
+      }
+    } catch (err) {
+      console.warn("[renderOutfit] reference photo lookup failed", err);
+    }
+
+    // 5. Build the prompt — text first, then reference photo (if any), then garments.
     const itemList = itemRefs
       .map((r, i) => `  ${i + 1}. ${r.descriptor || "garment"}`)
       .join("\n");
 
     const promptText = `${RENDER_SYSTEM_HINT}
-
-The model is wearing these specific items (each shown in the attached reference images, in order):
+${referenceUrl ? `\n${FACE_CONSISTENCY_HINT}\n` : ""}
+The model is wearing these specific items (each shown in the attached garment reference images, in order):
 ${itemList}
 
-Compose all items together on the same model in a single frame. Keep proportions realistic. Square crop, centered subject, full-body if possible, otherwise three-quarter framing.`;
+Compose all items together on the same model in a single sharp, high-resolution frame. Keep proportions realistic and the face clearly visible and unaltered. Three-quarter or full-body framing, centered subject.`;
 
     const parts: Array<{ type: "text" | "image_url"; text?: string; image_url?: { url: string } }> = [
       { type: "text", text: promptText },
     ];
+    if (referenceUrl) {
+      parts.push({ type: "image_url", image_url: { url: referenceUrl } });
+    }
     for (const r of itemRefs) {
       parts.push({ type: "image_url", image_url: { url: r.url } });
     }
 
-    // 5. Call the gateway
+    // 6. Call the gateway — use Nano Banana 2 (sharper, pro-quality, fast)
     let dataUrl: string;
     try {
       dataUrl = await generateImage({
-        model: "google/gemini-2.5-flash-image",
+        model: "google/gemini-3.1-flash-image-preview",
         parts,
-        timeoutMs: 90_000,
+        timeoutMs: 120_000,
       });
     } catch (err) {
       const code =
