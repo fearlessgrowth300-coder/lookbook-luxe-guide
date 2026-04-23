@@ -139,6 +139,12 @@ interface CandidateRow {
   last_worn: string | null;
 }
 
+interface HeuristicLookArgs {
+  candidates: CandidateRow[];
+  occasion: Occasion;
+  temp_c: number;
+}
+
 function buildUserPrompt(args: {
   occasion: Occasion;
   temp_c: number;
@@ -309,7 +315,7 @@ async function persistStylingLog(args: {
   validationResults: unknown;
   failureReasons: string[];
   attempt: number;
-  mode: "strict" | "relaxed";
+  mode: "strict" | "relaxed" | "fallback";
 }) {
   try {
     await supabaseAdmin.from("styling_logs" as any).insert({
@@ -334,6 +340,173 @@ async function persistStylingLog(args: {
   } catch (error) {
     console.error("[suggestOutfit] Failed to persist styling log", error);
   }
+}
+
+function daysSinceLastWorn(item: CandidateRow) {
+  if (!item.last_worn) return 365;
+  const days = Math.floor((Date.now() - new Date(item.last_worn).getTime()) / 86_400_000);
+  return Number.isFinite(days) ? Math.max(days, 0) : 365;
+}
+
+function candidatePriorityScore(item: CandidateRow, targetFormality: number) {
+  const formalityPenalty =
+    typeof item.formality_score === "number"
+      ? Math.abs(item.formality_score - targetFormality)
+      : 1.5;
+  const wearPenalty = item.wear_count ?? 0;
+  const freshnessBonus = Math.min(daysSinceLastWorn(item), 45);
+  const materialBonus = item.material ? 1 : 0;
+  return freshnessBonus + materialBonus - formalityPenalty * 6 - wearPenalty * 1.25;
+}
+
+function buildCandidateShortlist(
+  candidates: CandidateRow[],
+  occasion: Occasion,
+  temp_c: number,
+) {
+  const [low, high] = FORMALITY_RANGE[occasion];
+  const targetFormality = (low + high) / 2;
+  const limits: Partial<Record<NonNullable<CandidateRow["category"]>, number>> = {
+    top: 5,
+    bottom: 5,
+    shoes: 4,
+    dress: 3,
+    outerwear: temp_c < 15 ? 3 : 0,
+  };
+
+  return Object.entries(limits).flatMap(([category, limit]) => {
+    if (!limit) return [];
+    return candidates
+      .filter((item) => item.category === category)
+      .sort(
+        (a, b) =>
+          candidatePriorityScore(b, targetFormality) -
+          candidatePriorityScore(a, targetFormality),
+      )
+      .slice(0, limit);
+  });
+}
+
+function comboScore(items: CandidateRow[], targetFormality: number) {
+  const scores = items
+    .map((item) => item.formality_score)
+    .filter((score): score is number => typeof score === "number");
+  const midpoint = scores.length > 0 ? scores.reduce((sum, score) => sum + score, 0) / scores.length : targetFormality;
+  const formalityPenalty = Math.abs(midpoint - targetFormality) * 8;
+  const variancePenalty = scores.length > 1 ? (Math.max(...scores) - Math.min(...scores)) * 4 : 0;
+  const freshness = items.reduce((sum, item) => sum + Math.min(daysSinceLastWorn(item), 30), 0);
+  const wearPenalty = items.reduce((sum, item) => sum + (item.wear_count ?? 0), 0) * 1.1;
+  const materials = new Set(items.map((item) => item.material).filter(Boolean));
+  const textureBonus = Math.max(0, materials.size - 1) * 3;
+  return freshness + textureBonus - formalityPenalty - variancePenalty - wearPenalty;
+}
+
+function formatItemLabel(item: CandidateRow | undefined) {
+  if (!item) return "the anchor piece";
+  return [item.color_primary, item.material, item.subcategory ?? item.category]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function fallbackLookName(occasion: Occasion, index: number) {
+  const names: Record<Occasion, string[]> = {
+    office: ["Quiet Authority", "Textured Routine", "Late Appointment"],
+    casual: ["Long Weekend", "Soft Structure", "Side Street"],
+    evening: ["Low Light", "Second Seating", "After Midnight"],
+    athletic: ["Early Set", "Track Layer", "Off Duty"],
+    formal: ["House Lights", "Black Grain", "Last Arrival"],
+    travel: ["Gate Ready", "Soft Transit", "Arrival Hall"],
+  };
+  return names[occasion][index] ?? `${occasion} look`;
+}
+
+function fallbackRationale(strategy: LookStrategy, items: CandidateRow[]) {
+  const anchor =
+    items.find((item) => item.category === "dress") ??
+    items.find((item) => item.category === "bottom") ??
+    items.find((item) => item.category === "top") ??
+    items[0];
+  const support = items.find((item) => item.id !== anchor?.id && item.category !== "shoes") ?? items.find((item) => item.id !== anchor?.id);
+
+  if (strategy === "textured") {
+    return `${formatItemLabel(anchor)} sets the pace; ${formatItemLabel(support)} adds a cleaner texture shift.`.slice(0, 160);
+  }
+  if (strategy === "move") {
+    return `${formatItemLabel(anchor)} leads, while ${formatItemLabel(support)} changes the read without losing control.`.slice(0, 160);
+  }
+  return `${formatItemLabel(anchor)} anchors the look; ${formatItemLabel(support)} keeps the proportions steady.`.slice(0, 160);
+}
+
+function buildHeuristicLooks(args: HeuristicLookArgs): LookProposal[] {
+  const [low, high] = FORMALITY_RANGE[args.occasion];
+  const targetFormality = (low + high) / 2;
+  const shortlist = buildCandidateShortlist(args.candidates, args.occasion, args.temp_c);
+  const tops = shortlist.filter((item) => item.category === "top");
+  const bottoms = shortlist.filter((item) => item.category === "bottom");
+  const dresses = shortlist.filter((item) => item.category === "dress");
+  const shoes = shortlist.filter((item) => item.category === "shoes");
+  const outerwear = shortlist.filter((item) => item.category === "outerwear");
+  const outerwearOptions = args.temp_c < 15 ? [undefined, ...outerwear] : [undefined];
+
+  const combos = new Map<string, { items: CandidateRow[]; score: number }>();
+  const rememberCombo = (items: CandidateRow[]) => {
+    const proposal: LookProposal = {
+      item_ids: items.map((item) => item.id),
+      name: "",
+      rationale: "",
+    };
+    const validation = validateLook(proposal, shortlist, args.temp_c);
+    if (!validation.ok) return;
+    const key = proposal.item_ids.slice().sort().join(":");
+    const score = comboScore(items, targetFormality);
+    const existing = combos.get(key);
+    if (!existing || score > existing.score) {
+      combos.set(key, { items, score });
+    }
+  };
+
+  for (const dress of dresses) {
+    for (const shoe of shoes) {
+      for (const layer of outerwearOptions) {
+        rememberCombo([dress, shoe, ...(layer ? [layer] : [])]);
+      }
+    }
+  }
+
+  for (const top of tops) {
+    for (const bottom of bottoms) {
+      for (const shoe of shoes) {
+        for (const layer of outerwearOptions) {
+          rememberCombo([top, bottom, shoe, ...(layer ? [layer] : [])]);
+        }
+      }
+    }
+  }
+
+  const sorted = Array.from(combos.values()).sort((a, b) => b.score - a.score);
+  const chosen: { items: CandidateRow[]; score: number }[] = [];
+  for (const combo of sorted) {
+    const proposal = { item_ids: combo.items.map((item) => item.id), name: "", rationale: "" };
+    if (
+      chosen.every((picked) =>
+        pairDifferenceCount(
+          proposal,
+          { item_ids: picked.items.map((item) => item.id), name: "", rationale: "" },
+        ) >= 2,
+      )
+    ) {
+      chosen.push(combo);
+    }
+    if (chosen.length === 3) break;
+  }
+
+  const strategies: LookStrategy[] = ["expected", "textured", "move"];
+  return chosen.slice(0, 3).map((combo, index) => ({
+    strategy: strategies[index] ?? "expected",
+    item_ids: combo.items.map((item) => item.id),
+    name: fallbackLookName(args.occasion, index),
+    rationale: fallbackRationale(strategies[index] ?? "expected", combo.items),
+  }));
 }
 
 function looksAreDistinct(looks: LookProposal[]): boolean {
