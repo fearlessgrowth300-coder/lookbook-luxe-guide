@@ -364,59 +364,8 @@ function OutfitPage() {
   );
 }
 
-const AREA_MAP: Record<string, string> = {
-  top: "top",
-  bottom: "bottom",
-  outerwear: "outerwear",
-  dress: "top",
-  shoes: "shoes",
-  accessory: "accessory",
-  bag: "accessory",
-};
-
-function ItemFrame({
-  item,
-  index,
-  dimmed,
-  onHover,
-}: {
-  item: ItemMini;
-  index: number;
-  dimmed: boolean;
-  onHover: (h: boolean) => void;
-}) {
-  const area = AREA_MAP[item.category || "top"] || "top";
-  const url = item.enhanced_path
-    ? supabase.storage.from("wardrobe-enhanced").getPublicUrl(item.enhanced_path).data.publicUrl
-    : item.thumbnail_path
-      ? supabase.storage.from("wardrobe-thumbs").getPublicUrl(item.thumbnail_path).data.publicUrl
-      : null;
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, scale: 0.92, y: 16 }}
-      animate={{ opacity: dimmed ? 0.4 : 1, scale: 1, y: 0 }}
-      transition={{
-        opacity: { duration: dur.hover, ease: ease.tactile },
-        scale: { duration: dur.page, ease: ease.luxury, delay: index * 0.12 },
-        y: { duration: dur.page, ease: ease.luxury, delay: index * 0.12 },
-      }}
-      onMouseEnter={() => onHover(true)}
-      onMouseLeave={() => onHover(false)}
-      style={{ gridArea: area }}
-      className="relative flex min-h-[160px] items-center justify-center bg-linen p-4"
-    >
-      {url ? (
-        <img src={url} alt={item.subcategory || ""} className="max-h-[200px] w-full object-contain" />
-      ) : (
-        <div className="h-full w-full atelier-shimmer" />
-      )}
-      <span className="absolute -bottom-6 left-0 font-mono text-[10px] uppercase tracking-[0.16em] text-ink opacity-0 transition-opacity duration-220 group-hover:opacity-100">
-        {item.subcategory}
-      </span>
-    </motion.div>
-  );
-}
+/* (Composition is rendered by <LookHero />; the per-item ItemFrame component
+ * has been retired in favor of the model-on-figure presentation.) */
 
 function ActionBtn({
   label,
