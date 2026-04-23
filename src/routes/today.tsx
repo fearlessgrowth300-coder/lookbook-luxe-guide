@@ -504,7 +504,7 @@ function TodayPage() {
         open={sheetOpen}
         batchId={activeBatch}
         onClose={closeSheet}
-        onBatchChanged={(b) => setActiveBatch(b)}
+        onBatchChanged={(b) => setBatchId(b)}
       />
     </Shell>
   );
