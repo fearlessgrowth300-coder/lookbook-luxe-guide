@@ -1,15 +1,17 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useRef } from "react";
 import { Bookmark, Shuffle, Check, Share2 } from "lucide-react";
 import { toast } from "sonner";
 import { Shell } from "@/components/Shell";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { LookHero } from "@/components/LookHero";
 import { useAuth } from "@/lib/auth";
 import { supabase } from "@/integrations/supabase/client";
 import { ease, dur, tap } from "@/lib/motion";
 import { mockSuggestOutfit, type Occasion } from "@/server/mock-ai";
+import { renderOutfit } from "@/server/functions/renderOutfit";
 
 export const Route = createFileRoute("/outfit/$id")({
   component: () => (
@@ -26,6 +28,8 @@ interface ItemMini {
   enhanced_path: string | null;
   category: string | null;
   subcategory: string | null;
+  color_primary: string | null;
+  material: string | null;
   formality_score: number | null;
 }
 
@@ -34,11 +38,20 @@ function OutfitPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const [hoveredId, setHoveredId] = useState<string | null>(null);
 
   const outfitQuery = useQuery({
     queryKey: ["outfit", id],
     enabled: !!user,
+    // Poll every 4s while the AI render is still composing
+    refetchInterval: (query) => {
+      const o = query.state.data as
+        | { render_path?: string | null; render_status?: string | null }
+        | undefined;
+      if (!o) return false;
+      if (o.render_path) return false;
+      if (o.render_status === "failed") return false;
+      return 4000;
+    },
     queryFn: async () => {
       const { data, error } = await supabase
         .from("outfits")
@@ -56,11 +69,28 @@ function OutfitPage() {
     queryFn: async () => {
       const { data } = await supabase
         .from("wardrobe_items")
-        .select("id, thumbnail_path, enhanced_path, category, subcategory, formality_score")
+        .select(
+          "id, thumbnail_path, enhanced_path, category, subcategory, color_primary, material, formality_score",
+        )
         .in("id", outfitQuery.data!.item_ids);
       return (data ?? []) as ItemMini[];
     },
   });
+
+  // Trigger AI render once if it hasn't been kicked off yet
+  const renderRequestedRef = useRef(false);
+  useEffect(() => {
+    const o = outfitQuery.data;
+    if (!o) return;
+    if (o.render_path) return;
+    if (o.render_status === "rendering") return;
+    if (o.render_status === "failed") return;
+    if (renderRequestedRef.current) return;
+    renderRequestedRef.current = true;
+    renderOutfit({ data: { outfit_id: o.id } })
+      .then(() => qc.invalidateQueries({ queryKey: ["outfit", id] }))
+      .catch((err) => console.error("[renderOutfit] failed", err));
+  }, [outfitQuery.data, qc, id]);
 
   // Sequence number from outfit count
   const sequenceQuery = useQuery({
@@ -178,41 +208,34 @@ function OutfitPage() {
     <Shell>
       <div className="mx-auto max-w-[1280px] px-6 py-8 md:px-12 lg:px-24">
         <div className="grid gap-12 lg:grid-cols-[3fr_2fr]">
-          {/* Composition view */}
-          <div className="relative min-h-[70vh] bg-bone">
+          {/* Composition view — model wearing the outfit + callout labels */}
+          <div className="relative flex min-h-[70vh] flex-col bg-bone">
             <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-ink">
               LOOK · {String(seq).padStart(3, "0")}
             </p>
 
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={o.id}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: dur.hover }}
-                className="mt-6 grid gap-6"
-                style={{
-                  gridTemplateColumns: "1fr 2fr 1fr",
-                  gridTemplateRows: "auto auto auto",
-                  gridTemplateAreas: `
-                    "outerwear top accessory"
-                    "outerwear bottom accessory"
-                    ".         shoes ."
-                  `,
+            <motion.div
+              key={o.id}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: dur.page, ease: ease.luxury }}
+              className="mt-6 flex flex-1 items-center justify-center"
+              style={{
+                background:
+                  "linear-gradient(180deg, var(--linen) 0%, color-mix(in oklab, var(--linen), var(--ink) 4%) 100%)",
+              }}
+            >
+              <LookHero
+                outfit={{
+                  id: o.id,
+                  name: o.name ?? null,
+                  render_path: o.render_path ?? null,
+                  render_status: o.render_status ?? null,
                 }}
-              >
-                {items.map((item, i) => (
-                  <ItemFrame
-                    key={item.id}
-                    item={item}
-                    index={i}
-                    dimmed={hoveredId !== null && hoveredId !== item.id}
-                    onHover={(v) => setHoveredId(v ? item.id : null)}
-                  />
-                ))}
-              </motion.div>
-            </AnimatePresence>
+                items={items}
+                size="lg"
+              />
+            </motion.div>
           </div>
 
           {/* Rationale panel */}
@@ -341,59 +364,8 @@ function OutfitPage() {
   );
 }
 
-const AREA_MAP: Record<string, string> = {
-  top: "top",
-  bottom: "bottom",
-  outerwear: "outerwear",
-  dress: "top",
-  shoes: "shoes",
-  accessory: "accessory",
-  bag: "accessory",
-};
-
-function ItemFrame({
-  item,
-  index,
-  dimmed,
-  onHover,
-}: {
-  item: ItemMini;
-  index: number;
-  dimmed: boolean;
-  onHover: (h: boolean) => void;
-}) {
-  const area = AREA_MAP[item.category || "top"] || "top";
-  const url = item.enhanced_path
-    ? supabase.storage.from("wardrobe-enhanced").getPublicUrl(item.enhanced_path).data.publicUrl
-    : item.thumbnail_path
-      ? supabase.storage.from("wardrobe-thumbs").getPublicUrl(item.thumbnail_path).data.publicUrl
-      : null;
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, scale: 0.92, y: 16 }}
-      animate={{ opacity: dimmed ? 0.4 : 1, scale: 1, y: 0 }}
-      transition={{
-        opacity: { duration: dur.hover, ease: ease.tactile },
-        scale: { duration: dur.page, ease: ease.luxury, delay: index * 0.12 },
-        y: { duration: dur.page, ease: ease.luxury, delay: index * 0.12 },
-      }}
-      onMouseEnter={() => onHover(true)}
-      onMouseLeave={() => onHover(false)}
-      style={{ gridArea: area }}
-      className="relative flex min-h-[160px] items-center justify-center bg-linen p-4"
-    >
-      {url ? (
-        <img src={url} alt={item.subcategory || ""} className="max-h-[200px] w-full object-contain" />
-      ) : (
-        <div className="h-full w-full atelier-shimmer" />
-      )}
-      <span className="absolute -bottom-6 left-0 font-mono text-[10px] uppercase tracking-[0.16em] text-ink opacity-0 transition-opacity duration-220 group-hover:opacity-100">
-        {item.subcategory}
-      </span>
-    </motion.div>
-  );
-}
+/* (Composition is rendered by <LookHero />; the per-item ItemFrame component
+ * has been retired in favor of the model-on-figure presentation.) */
 
 function ActionBtn({
   label,
