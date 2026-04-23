@@ -673,4 +673,21 @@ export const suggestOutfit = createServerFn({ method: "POST" })
       returned_count: validLooks.length,
       note: validLooks.length < 3 ? "low_variety" : null,
     };
+    } catch (err) {
+      // Last-resort safety net: never let an uncaught error reach the client
+      // as a 500. The client surfaces the toast `Couldn't compose looks` only
+      // for `error: "unexpected"` — we always include the message so the user
+      // gets a meaningful hint instead of the generic toast.
+      const message =
+        err instanceof AIGatewayError
+          ? `AI gateway: ${err.message}`
+          : err instanceof Error
+            ? err.message
+            : "unknown_error";
+      console.error("[suggestOutfit] Unhandled error:", err);
+      return {
+        error: "unexpected" as const,
+        message,
+      };
+    }
   });
