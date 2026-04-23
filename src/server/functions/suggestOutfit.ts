@@ -596,8 +596,13 @@ export const suggestOutfit = createServerFn({ method: "POST" })
       return true;
     });
 
+    const candidatePool =
+      candidates.length > 18
+        ? buildCandidateShortlist(candidates, data.occasion, data.temp_c)
+        : candidates;
+
     const byCategory = (cat: string) =>
-      candidates.filter((c) => c.category === cat);
+      candidatePool.filter((c) => c.category === cat);
     const tops = byCategory("top");
     const bottoms = byCategory("bottom");
     const shoes = byCategory("shoes");
@@ -621,7 +626,7 @@ export const suggestOutfit = createServerFn({ method: "POST" })
 
     // 5. Build candidate list for the LLM
     const now = Date.now();
-    const candidateList = candidates.map((c) => ({
+    const candidateList = candidatePool.map((c) => ({
       id: c.id,
       category: c.category,
       subcategory: c.subcategory,
@@ -635,15 +640,17 @@ export const suggestOutfit = createServerFn({ method: "POST" })
       tags: c.tags,
     }));
 
-    const candidateIds = new Set(candidates.map((c) => c.id));
+    const candidateIds = new Set(candidatePool.map((c) => c.id));
 
-    // 6. Call AI with one retry that can relax constraints if needed
+    // 6. Call AI once with a tight timeout; if it stalls or returns bad output,
+    //    fall back to a deterministic local composition so the user still gets looks.
     let payload: AIPayload | null = null;
     let validLooks: LookProposal[] = [];
     let lastReasons: string[] = [];
     const batch_id = crypto.randomUUID();
+    const MAX_AI_ATTEMPTS = 1;
 
-    for (let attempt = 0; attempt < 2; attempt++) {
+    for (let attempt = 0; attempt < MAX_AI_ATTEMPTS; attempt++) {
       const relaxed = attempt === 1 && lastReasons.length > 0;
       const userPrompt = buildUserPrompt({
         occasion: data.occasion,
@@ -666,49 +673,24 @@ export const suggestOutfit = createServerFn({ method: "POST" })
           ],
           max_tokens: 2000,
           json: true,
-          timeoutMs: 60_000,
+          timeoutMs: 12_000,
         });
       } catch (err) {
         if (err instanceof AIGatewayError) {
-          if (err.code === "rate_limited" || err.code === "payment_required") {
-            return {
-              error: "ai_unavailable" as const,
-              code: err.code,
-              message:
-                err.code === "rate_limited"
-                  ? "AI is busy. Try again in a moment."
-                  : "AI credits exhausted on the workspace.",
-            };
-          }
-          if (err.code === "timeout") {
-            if (attempt === 1) {
-              return {
-                error: "ai_unavailable" as const,
-                code: "timeout" as const,
-                message: "AI took too long. Try again.",
-              };
-            }
-            lastReasons = ["timeout"];
-            continue;
-          }
+          lastReasons = [`ai_${err.code}`];
+          console.warn("[suggestOutfit] AI fallback trigger:", err.code, err.message);
+          break;
         }
-        if (attempt === 1) throw err;
         lastReasons = [(err as Error).message];
-        continue;
+        break;
       }
 
       let parsed: AIPayload;
       try {
         parsed = JSON.parse(raw) as AIPayload;
       } catch {
-        if (attempt === 1) {
-          return {
-            error: "llm_parse_failed" as const,
-            message: "Couldn't read the AI response. Try again.",
-          };
-        }
         lastReasons = ["json_parse_failed"];
-        continue;
+        break;
       }
 
       payload = parsed;
@@ -725,7 +707,7 @@ export const suggestOutfit = createServerFn({ method: "POST" })
           typeof look.rationale === "string";
 
         const result = wellFormed
-          ? validateLook(look, candidates, data.temp_c, {
+          ? validateLook(look, candidatePool, data.temp_c, {
               maxFormalityVariance: relaxed ? 4 : 3,
             })
           : ({ ok: false, reason: "hallucinated_id" } as const);
@@ -741,7 +723,7 @@ export const suggestOutfit = createServerFn({ method: "POST" })
       const distinctResult = looks.length >= 2 ? looksAreDistinct(looks) : true;
       console.log("[suggestOutfit] Distinct check:", distinctResult);
 
-      const candidateSummary = buildCandidateSummary(candidates);
+      const candidateSummary = buildCandidateSummary(candidatePool);
       console.log("[suggestOutfit] Candidates available:", candidateSummary);
 
       const reasons = validationResults.flatMap((entry) =>
@@ -766,7 +748,7 @@ export const suggestOutfit = createServerFn({ method: "POST" })
         mood: data.mood,
         archetype,
         wardrobeSize: items.length,
-        candidates,
+        candidates: candidatePool,
         reasoning: parsed.reasoning,
         rawResponse: parsed,
         validationResults,
@@ -804,6 +786,43 @@ export const suggestOutfit = createServerFn({ method: "POST" })
       }
 
       lastReasons = reasons.length ? reasons : ["incomplete_output"];
+    }
+
+    if (validLooks.length === 0) {
+      const fallbackLooks = buildHeuristicLooks({
+        candidates: candidatePool,
+        occasion: data.occasion,
+        temp_c: data.temp_c,
+      });
+
+      if (fallbackLooks.length > 0) {
+        const fallbackValidation = fallbackLooks.map((look) => ({
+          look_name: look.name,
+          item_ids: look.item_ids,
+          result: validateLook(look, candidatePool, data.temp_c, {
+            maxFormalityVariance: 4,
+          }),
+        }));
+
+        await persistStylingLog({
+          userId,
+          batchId: batch_id,
+          occasion: data.occasion,
+          tempC: data.temp_c,
+          mood: data.mood,
+          archetype,
+          wardrobeSize: items.length,
+          candidates: candidatePool,
+          reasoning: payload?.reasoning,
+          rawResponse: payload ?? { fallback: true },
+          validationResults: fallbackValidation,
+          failureReasons: lastReasons.length > 0 ? lastReasons : ["fallback_composer"],
+          attempt: 1,
+          mode: "fallback",
+        });
+
+        validLooks = fallbackLooks;
+      }
     }
 
     if (validLooks.length === 0) {
