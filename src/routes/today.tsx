@@ -8,7 +8,7 @@ import { Shell } from "@/components/Shell";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { ThreeLooksSheet } from "@/components/ThreeLooksSheet";
 import { useAuth } from "@/lib/auth";
-import { useUI, type Mood } from "@/lib/store";
+import { useUI, useThreeLooksSheet, type Mood } from "@/lib/store";
 import { supabase } from "@/integrations/supabase/client";
 import { ease, dur, tap } from "@/lib/motion";
 import { type Occasion } from "@/server/mock-ai";
@@ -64,19 +64,23 @@ function TodayPage() {
   const selected = urlOccasion ?? null;
   const [generating, setGenerating] = useState(false);
   const [shake, setShake] = useState(0);
-  const [activeBatch, setActiveBatch] = useState<string | null>(urlBatch ?? null);
-  const [sheetOpen, setSheetOpen] = useState<boolean>(!!urlBatch);
+
+  // Global sheet state — also opened from Recent Looks cards and deep links.
+  const sheetOpen = useThreeLooksSheet((s) => s.isOpen);
+  const activeBatch = useThreeLooksSheet((s) => s.batchId);
+  const openSheet = useThreeLooksSheet((s) => s.open);
+  const setBatchId = useThreeLooksSheet((s) => s.setBatchId);
+  const closeSheetStore = useThreeLooksSheet((s) => s.close);
 
   // Deep-link: if URL has ?batch=… open the sheet with it.
   useEffect(() => {
     if (urlBatch) {
-      setActiveBatch(urlBatch);
-      setSheetOpen(true);
+      openSheet(urlBatch);
     }
-  }, [urlBatch]);
+  }, [urlBatch, openSheet]);
 
   function closeSheet() {
-    setSheetOpen(false);
+    closeSheetStore();
     if (urlBatch) {
       navigate({
         to: "/today",
@@ -269,8 +273,7 @@ function TodayPage() {
 
       // First successful generation → arm the install prompt strip.
       markInstallPromptReady();
-      setActiveBatch(result.batch_id);
-      setSheetOpen(true);
+      openSheet(result.batch_id);
     } catch (e) {
       console.error("[handleGenerate] threw:", e);
       setShake((s) => s + 1);
@@ -454,7 +457,15 @@ function TodayPage() {
             {recentQuery.data!.map((o) => (
               <button
                 key={o.id}
-                onClick={() => navigate({ to: "/outfit/$id", params: { id: o.id } })}
+                onClick={() => {
+                  // Prefer the three-look sheet if this outfit belongs to a batch.
+                  // Legacy single outfits without batch_id fall back to the detail page.
+                  if (o.batch_id) {
+                    openSheet(o.batch_id);
+                  } else {
+                    navigate({ to: "/outfit/$id", params: { id: o.id } });
+                  }
+                }}
                 className="group shrink-0 text-left"
               >
                 <motion.div
@@ -501,7 +512,7 @@ function TodayPage() {
         open={sheetOpen}
         batchId={activeBatch}
         onClose={closeSheet}
-        onBatchChanged={(b) => setActiveBatch(b)}
+        onBatchChanged={(b) => setBatchId(b)}
       />
     </Shell>
   );

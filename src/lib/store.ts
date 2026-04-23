@@ -27,3 +27,23 @@ export const useUI = create<UIState>((set) => ({
   uploadOpen: false,
   setUploadOpen: (v) => set({ uploadOpen: v }),
 }));
+
+// ─── Three-Looks bottom sheet ────────────────────────────────────────────────
+// Global state so that any component (Today, recent-look cards, deep-link
+// handlers, future PWA notifications) can open the modal without prop drilling.
+interface ThreeLooksSheetState {
+  isOpen: boolean;
+  batchId: string | null;
+  open: (batchId: string) => void;
+  close: () => void;
+  setBatchId: (batchId: string) => void;
+}
+
+export const useThreeLooksSheet = create<ThreeLooksSheetState>((set) => ({
+  isOpen: false,
+  batchId: null,
+  open: (batchId) => set({ isOpen: true, batchId }),
+  close: () => set({ isOpen: false }),
+  setBatchId: (batchId) => set({ batchId }),
+}));
+
