@@ -58,12 +58,33 @@ const ALL_OCCASIONS: { id: Occasion; label: string }[] = [
 function TodayPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const { occasion: urlOccasion } = Route.useSearch();
+  const { occasion: urlOccasion, batch: urlBatch } = Route.useSearch();
   const { mood, setMood } = useUI();
   const [moreOpen, setMoreOpen] = useState(false);
   const selected = urlOccasion ?? null;
   const [generating, setGenerating] = useState(false);
   const [shake, setShake] = useState(0);
+  const [activeBatch, setActiveBatch] = useState<string | null>(urlBatch ?? null);
+  const [sheetOpen, setSheetOpen] = useState<boolean>(!!urlBatch);
+
+  // Deep-link: if URL has ?batch=… open the sheet with it.
+  useEffect(() => {
+    if (urlBatch) {
+      setActiveBatch(urlBatch);
+      setSheetOpen(true);
+    }
+  }, [urlBatch]);
+
+  function closeSheet() {
+    setSheetOpen(false);
+    if (urlBatch) {
+      navigate({
+        to: "/today",
+        search: { occasion: urlOccasion },
+        replace: true,
+      });
+    }
+  }
 
   const today = useMemo(() => new Date(), []);
   const dateLabel = useMemo(
