@@ -420,14 +420,32 @@ function Tile({
   const enhancedUrl = item?.enhanced_path
     ? supabase.storage.from("wardrobe-enhanced").getPublicUrl(item.enhanced_path).data.publicUrl
     : null;
-  const [imgUrl, setImgUrl] = useState<string | null>(pending?.previewUrl ?? enhancedUrl ?? thumbUrl);
+  // Prefer thumbnail (≈16KB) over enhanced PNG (≈1MB) for grid rendering.
+  // Enhanced is only used as a fallback when thumb is missing or fails.
+  const initialUrl = pending?.previewUrl ?? thumbUrl ?? enhancedUrl;
+  const [imgUrl, setImgUrl] = useState<string | null>(initialUrl);
+  const [broken, setBroken] = useState(false);
 
   const longPressTimer = useRef<number | null>(null);
   const longPressFiredRef = useRef(false);
 
   useEffect(() => {
-    setImgUrl(pending?.previewUrl ?? enhancedUrl ?? thumbUrl);
+    setImgUrl(pending?.previewUrl ?? thumbUrl ?? enhancedUrl);
+    setBroken(false);
   }, [enhancedUrl, pending?.previewUrl, thumbUrl]);
+
+  // One-shot diagnostic — log only when an image fails or is missing a path.
+  useEffect(() => {
+    if (!item || pending) return;
+    if (!thumbUrl && !enhancedUrl) {
+      // eslint-disable-next-line no-console
+      console.warn("[wardrobe-tile] no image paths", {
+        id: item.id,
+        thumbnail_path: item.thumbnail_path,
+        enhanced_path: item.enhanced_path,
+      });
+    }
+  }, [item, pending, thumbUrl, enhancedUrl]);
 
   return (
     <motion.div
