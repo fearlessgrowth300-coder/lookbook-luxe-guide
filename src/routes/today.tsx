@@ -200,6 +200,7 @@ function TodayPage() {
       });
 
       if ("error" in result) {
+        console.warn("[suggestOutfit] error result:", result);
         switch (result.error) {
           case "rate_limited":
             toast("Daily limit reached. Try again after midnight.");
@@ -232,6 +233,11 @@ function TodayPage() {
           case "ai_unavailable":
             toast(result.message ?? "AI is busy. Try again in a moment.");
             break;
+          case "unexpected":
+            toast(
+              `Compose failed: ${("message" in result && result.message) || "unknown error"}`,
+            );
+            break;
           case "llm_parse_failed":
           default:
             toast("Something went wrong. Pull down to refresh and try again.");
@@ -242,9 +248,10 @@ function TodayPage() {
 
       navigate({ to: "/today/looks", search: { batch: result.batch_id } });
     } catch (e) {
-      console.error(e);
+      console.error("[handleGenerate] threw:", e);
       setShake((s) => s + 1);
-      toast("Couldn't compose looks. Try again.");
+      const msg = e instanceof Error ? e.message : String(e);
+      toast(`Couldn't compose looks: ${msg.slice(0, 80)}`);
     } finally {
       setGenerating(false);
     }
