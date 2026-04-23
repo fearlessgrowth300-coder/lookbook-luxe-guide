@@ -230,15 +230,11 @@ function TodayPage() {
             }
             break;
           }
-          case "ai_unavailable":
-            toast(result.message ?? "AI is busy. Try again in a moment.");
-            break;
           case "unexpected":
             toast(
               `Compose failed: ${("message" in result && result.message) || "unknown error"}`,
             );
             break;
-          case "llm_parse_failed":
           default:
             toast("Something went wrong. Pull down to refresh and try again.");
         }
