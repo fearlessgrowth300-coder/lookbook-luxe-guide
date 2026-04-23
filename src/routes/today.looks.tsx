@@ -541,6 +541,112 @@ function LookPanel({
   );
 }
 
+/* ─────────────────────────── Look hero (AI render + callouts) ─────────────────────────── */
+
+function LookHero({
+  outfit,
+  items,
+  stack,
+  animOrder,
+  revealed,
+}: {
+  outfit: OutfitRecord;
+  items: ItemFull[];
+  stack: { main: ItemFull[]; accessories: ItemFull[] };
+  animOrder: Map<string, number>;
+  revealed: boolean;
+}) {
+  const renderUrl = outfit.render_path
+    ? supabase.storage.from("outfit-renders").getPublicUrl(outfit.render_path)
+        .data.publicUrl
+    : null;
+
+  // Split labelled items into left/right sides for callouts
+  const labelled = stack.main.concat(stack.accessories);
+  const mid = Math.ceil(labelled.length / 2);
+  const leftItems = labelled.slice(0, mid);
+  const rightItems = labelled.slice(mid);
+
+  const isRendering =
+    !renderUrl &&
+    (outfit.render_status === "rendering" || outfit.render_status === null);
+
+  return (
+    <div className="relative flex h-full w-full items-center justify-center">
+      {/* Left callouts */}
+      <div className="hidden flex-col gap-6 pr-2 md:flex md:w-[140px] xl:w-[180px]">
+        {leftItems.map((item) => (
+          <CalloutLabel
+            key={item.id}
+            item={item}
+            side="left"
+            revealed={revealed}
+            delay={(animOrder.get(item.id) ?? 0) * 0.12 + 0.2}
+          />
+        ))}
+      </div>
+
+      {/* Center: AI render or fallback stack */}
+      <div className="relative flex flex-1 items-center justify-center">
+        {renderUrl ? (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.96 }}
+            animate={revealed ? { opacity: 1, scale: 1 } : {}}
+            transition={{ duration: 0.7, ease: ease.luxury }}
+            className="relative"
+          >
+            <img
+              src={renderUrl}
+              alt={outfit.name ?? "Look"}
+              className="max-h-[420px] w-auto object-contain md:max-h-[520px]"
+              style={{ filter: "drop-shadow(0 12px 24px rgba(0,0,0,0.08))" }}
+            />
+            {/* Soft ground shadow */}
+            <div
+              aria-hidden
+              className="mx-auto mt-1 h-2"
+              style={{
+                width: "60%",
+                background: "var(--ink)",
+                borderRadius: "50%",
+                filter: "blur(10px)",
+                opacity: 0.18,
+              }}
+            />
+          </motion.div>
+        ) : (
+          <div className="flex flex-col items-center">
+            <ItemStack
+              items={stack.main}
+              accessories={stack.accessories}
+              animOrder={animOrder}
+              revealed={revealed}
+            />
+            {isRendering && (
+              <p className="mt-4 font-mono text-[10px] uppercase tracking-[0.2em] text-ink/60">
+                Composing on figure…
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Right callouts */}
+      <div className="hidden flex-col gap-6 pl-2 md:flex md:w-[140px] xl:w-[180px]">
+        {rightItems.map((item) => (
+          <CalloutLabel
+            key={item.id}
+            item={item}
+            side="right"
+            revealed={revealed}
+            delay={(animOrder.get(item.id) ?? 0) * 0.12 + 0.2}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ─────────────────────────── Item stack ─────────────────────────── */
 
 function ItemStack({
