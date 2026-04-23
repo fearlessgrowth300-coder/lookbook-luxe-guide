@@ -69,6 +69,7 @@ function TodayPage() {
   const sheetOpen = useThreeLooksSheet((s) => s.isOpen);
   const activeBatch = useThreeLooksSheet((s) => s.batchId);
   const openSheet = useThreeLooksSheet((s) => s.open);
+  const setBatchId = useThreeLooksSheet((s) => s.setBatchId);
   const closeSheetStore = useThreeLooksSheet((s) => s.close);
 
   // Deep-link: if URL has ?batch=… open the sheet with it.
