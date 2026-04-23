@@ -1,11 +1,12 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Cloud, Calendar } from "lucide-react";
 import { toast } from "sonner";
 import { Shell } from "@/components/Shell";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { ThreeLooksSheet } from "@/components/ThreeLooksSheet";
 import { useAuth } from "@/lib/auth";
 import { useUI, type Mood } from "@/lib/store";
 import { supabase } from "@/integrations/supabase/client";
@@ -25,13 +26,15 @@ export const Route = createFileRoute("/today")({
   ),
   validateSearch: (
     search: Record<string, unknown>,
-  ): { occasion?: Occasion } => {
+  ): { occasion?: Occasion; batch?: string } => {
     const occ = search.occasion;
+    const batch = search.batch;
     return {
       occasion:
         typeof occ === "string" && (ALL_OCC_IDS as readonly string[]).includes(occ)
           ? (occ as Occasion)
           : undefined,
+      batch: typeof batch === "string" && batch.length > 0 ? batch : undefined,
     };
   },
   head: () => ({ meta: [{ title: "Today — Atelier" }] }),
@@ -55,12 +58,33 @@ const ALL_OCCASIONS: { id: Occasion; label: string }[] = [
 function TodayPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const { occasion: urlOccasion } = Route.useSearch();
+  const { occasion: urlOccasion, batch: urlBatch } = Route.useSearch();
   const { mood, setMood } = useUI();
   const [moreOpen, setMoreOpen] = useState(false);
   const selected = urlOccasion ?? null;
   const [generating, setGenerating] = useState(false);
   const [shake, setShake] = useState(0);
+  const [activeBatch, setActiveBatch] = useState<string | null>(urlBatch ?? null);
+  const [sheetOpen, setSheetOpen] = useState<boolean>(!!urlBatch);
+
+  // Deep-link: if URL has ?batch=… open the sheet with it.
+  useEffect(() => {
+    if (urlBatch) {
+      setActiveBatch(urlBatch);
+      setSheetOpen(true);
+    }
+  }, [urlBatch]);
+
+  function closeSheet() {
+    setSheetOpen(false);
+    if (urlBatch) {
+      navigate({
+        to: "/today",
+        search: { occasion: urlOccasion },
+        replace: true,
+      });
+    }
+  }
 
   const today = useMemo(() => new Date(), []);
   const dateLabel = useMemo(
@@ -245,7 +269,8 @@ function TodayPage() {
 
       // First successful generation → arm the install prompt strip.
       markInstallPromptReady();
-      navigate({ to: "/today/looks", search: { batch: result.batch_id } });
+      setActiveBatch(result.batch_id);
+      setSheetOpen(true);
     } catch (e) {
       console.error("[handleGenerate] threw:", e);
       setShake((s) => s + 1);
@@ -470,6 +495,14 @@ function TodayPage() {
           }}
         />
       )}
+
+      {/* Three Looks bottom sheet */}
+      <ThreeLooksSheet
+        open={sheetOpen}
+        batchId={activeBatch}
+        onClose={closeSheet}
+        onBatchChanged={(b) => setActiveBatch(b)}
+      />
     </Shell>
   );
 }
