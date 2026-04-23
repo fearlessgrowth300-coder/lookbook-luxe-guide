@@ -64,19 +64,22 @@ function TodayPage() {
   const selected = urlOccasion ?? null;
   const [generating, setGenerating] = useState(false);
   const [shake, setShake] = useState(0);
-  const [activeBatch, setActiveBatch] = useState<string | null>(urlBatch ?? null);
-  const [sheetOpen, setSheetOpen] = useState<boolean>(!!urlBatch);
+
+  // Global sheet state — also opened from Recent Looks cards and deep links.
+  const sheetOpen = useThreeLooksSheet((s) => s.isOpen);
+  const activeBatch = useThreeLooksSheet((s) => s.batchId);
+  const openSheet = useThreeLooksSheet((s) => s.open);
+  const closeSheetStore = useThreeLooksSheet((s) => s.close);
 
   // Deep-link: if URL has ?batch=… open the sheet with it.
   useEffect(() => {
     if (urlBatch) {
-      setActiveBatch(urlBatch);
-      setSheetOpen(true);
+      openSheet(urlBatch);
     }
-  }, [urlBatch]);
+  }, [urlBatch, openSheet]);
 
   function closeSheet() {
-    setSheetOpen(false);
+    closeSheetStore();
     if (urlBatch) {
       navigate({
         to: "/today",
