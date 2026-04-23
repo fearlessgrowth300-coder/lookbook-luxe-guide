@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Cloud, Calendar } from "lucide-react";
 import { toast } from "sonner";
 import { Shell } from "@/components/Shell";
@@ -269,7 +269,8 @@ function TodayPage() {
 
       // First successful generation → arm the install prompt strip.
       markInstallPromptReady();
-      navigate({ to: "/today/looks", search: { batch: result.batch_id } });
+      setActiveBatch(result.batch_id);
+      setSheetOpen(true);
     } catch (e) {
       console.error("[handleGenerate] threw:", e);
       setShake((s) => s + 1);
