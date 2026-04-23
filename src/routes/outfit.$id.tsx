@@ -209,7 +209,7 @@ function OutfitPage() {
       <div className="mx-auto max-w-[1280px] px-6 py-8 md:px-12 lg:px-24">
         <div className="grid gap-12 lg:grid-cols-[3fr_2fr]">
           {/* Composition view — model wearing the outfit + callout labels */}
-          <div className="relative flex min-h-[70vh] flex-col bg-bone">
+          <div className="relative flex min-h-[88vh] flex-col bg-bone">
             <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-ink">
               LOOK · {String(seq).padStart(3, "0")}
             </p>

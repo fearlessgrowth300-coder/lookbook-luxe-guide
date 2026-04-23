@@ -79,8 +79,13 @@ export function LookHero({
       outfit.render_status === null);
   const renderFailed = outfit.render_status === "failed";
 
-  const heroMaxH = size === "lg" ? "max-h-[640px]" : "max-h-[460px]";
-  const sideW = size === "lg" ? "w-[110px] sm:w-[140px]" : "w-[88px] sm:w-[120px]";
+  // Bigger render — fills the available height of its container
+  const heroMaxH =
+    size === "lg"
+      ? "max-h-[min(85vh,960px)]"
+      : "max-h-[min(72vh,720px)]";
+  const sideW =
+    size === "lg" ? "w-[120px] sm:w-[160px]" : "w-[96px] sm:w-[130px]";
 
   return (
     <div className="relative flex h-full w-full items-stretch justify-center gap-1 sm:gap-2">
@@ -109,8 +114,11 @@ export function LookHero({
             <img
               src={renderUrl}
               alt={outfit.name ?? "Look"}
-              className={`w-auto object-contain ${heroMaxH}`}
-              style={{ filter: "drop-shadow(0 14px 28px rgba(0,0,0,0.10))" }}
+              className={`h-auto w-auto object-contain ${heroMaxH}`}
+              style={{
+                filter: "drop-shadow(0 18px 36px rgba(0,0,0,0.12))",
+                imageRendering: "auto",
+              }}
             />
             {/* Soft ground shadow */}
             <div
