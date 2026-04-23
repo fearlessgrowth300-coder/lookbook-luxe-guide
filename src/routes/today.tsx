@@ -13,6 +13,7 @@ import { ease, dur, tap } from "@/lib/motion";
 import { type Occasion } from "@/server/mock-ai";
 import { suggestOutfit } from "@/server/functions/suggestOutfit";
 import { generateDailyPrompt } from "@/server/functions/generateDailyPrompt";
+import { markInstallPromptReady } from "@/components/InstallPrompt";
 
 const ALL_OCC_IDS = ["office", "casual", "evening", "athletic", "formal", "travel"] as const;
 
@@ -242,6 +243,8 @@ function TodayPage() {
         return;
       }
 
+      // First successful generation → arm the install prompt strip.
+      markInstallPromptReady();
       navigate({ to: "/today/looks", search: { batch: result.batch_id } });
     } catch (e) {
       console.error("[handleGenerate] threw:", e);
