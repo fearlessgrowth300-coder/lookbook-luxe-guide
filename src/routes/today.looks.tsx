@@ -388,36 +388,7 @@ function LookPanel({
     }
   }, [isActive, revealed]);
 
-  // Order items: bottom → top → shoes → outerwear → accessories
-  const stack = useMemo(() => {
-    const order = ["outerwear", "top", "dress", "bottom", "shoes"];
-    const main = items
-      .filter((i) => order.includes(i.category ?? ""))
-      .sort(
-        (a, b) =>
-          order.indexOf(a.category ?? "") - order.indexOf(b.category ?? ""),
-      );
-    const accessories = items.filter((i) =>
-      ["accessory", "bag"].includes(i.category ?? ""),
-    );
-    return { main, accessories };
-  }, [items]);
-
-  // Animation order: bottom, top, shoes, outerwear, accessories
-  const animOrder = useMemo(() => {
-    const cats = ["bottom", "top", "dress", "shoes", "outerwear"];
-    const map = new Map<string, number>();
-    let n = 0;
-    cats.forEach((c) => {
-      items.forEach((i) => {
-        if (i.category === c) map.set(i.id, n++);
-      });
-    });
-    items.forEach((i) => {
-      if (!map.has(i.id)) map.set(i.id, n++);
-    });
-    return map;
-  }, [items]);
+  // (Item ordering + callout split now handled inside <LookHero />)
 
   async function handleSave() {
     const next = !saved;
