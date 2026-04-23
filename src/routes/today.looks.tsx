@@ -432,7 +432,7 @@ function LookPanel({
       }}
     >
       {/* Top: eyebrow + name */}
-      <div className="px-6 pt-6 text-center md:pt-10">
+      <div className="px-4 pt-5 text-center md:px-6 md:pt-8">
         <motion.p
           initial={{ opacity: 0, y: 6 }}
           animate={revealed ? { opacity: 1, y: 0 } : {}}
@@ -452,7 +452,7 @@ function LookPanel({
       </div>
 
       {/* Composition zone — LOOK 6 style: AI-rendered model image with callout labels */}
-      <div className="relative flex flex-1 items-center justify-center px-2 py-4 sm:px-4 md:px-6 md:py-6">
+      <div className="relative flex flex-1 items-center justify-center overflow-hidden px-1 py-2 sm:px-2 md:px-4 md:py-4">
         <LookHero outfit={outfit} items={items} revealed={revealed} size="md" />
       </div>
 
@@ -463,7 +463,7 @@ function LookPanel({
           initial={{ opacity: 0 }}
           animate={revealed ? { opacity: 1 } : {}}
           transition={{ duration: 0.5, delay: 0.7, ease: ease.luxury }}
-          className="mx-auto mt-4 max-w-[480px] px-8 text-center font-display text-[16px] font-light italic leading-[1.45] text-graphite md:text-[18px]"
+          className="mx-auto mt-2 max-w-[480px] px-6 text-center font-display text-[16px] font-light italic leading-[1.45] text-graphite md:text-[18px]"
           style={{
             display: "-webkit-box",
             WebkitLineClamp: 3,
@@ -476,7 +476,7 @@ function LookPanel({
       )}
 
       {/* Action row */}
-      <div className="flex shrink-0 justify-center px-6 pb-8 pt-6">
+      <div className="flex shrink-0 justify-center px-6 pb-6 pt-4">
         <div className="flex w-[280px] items-center justify-between">
           <ActionIcon
             label="SAVE"

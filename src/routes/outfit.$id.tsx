@@ -206,10 +206,10 @@ function OutfitPage() {
 
   return (
     <Shell>
-      <div className="mx-auto max-w-[1280px] px-6 py-8 md:px-12 lg:px-24">
-        <div className="grid gap-12 lg:grid-cols-[3fr_2fr]">
+      <div className="mx-auto max-w-[1600px] px-4 py-6 md:px-8 lg:px-10">
+        <div className="grid gap-8 xl:grid-cols-[minmax(0,1.8fr)_420px]">
           {/* Composition view — model wearing the outfit + callout labels */}
-          <div className="relative flex min-h-[88vh] flex-col bg-bone">
+          <div className="relative flex min-h-[92vh] flex-col bg-bone">
             <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-ink">
               LOOK · {String(seq).padStart(3, "0")}
             </p>
@@ -219,7 +219,7 @@ function OutfitPage() {
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: dur.page, ease: ease.luxury }}
-              className="mt-6 flex flex-1 items-center justify-center"
+                className="mt-4 flex flex-1 items-center justify-center overflow-hidden"
               style={{
                 background:
                   "linear-gradient(180deg, var(--linen) 0%, color-mix(in oklab, var(--linen), var(--ink) 4%) 100%)",
