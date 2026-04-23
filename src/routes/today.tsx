@@ -457,7 +457,15 @@ function TodayPage() {
             {recentQuery.data!.map((o) => (
               <button
                 key={o.id}
-                onClick={() => navigate({ to: "/outfit/$id", params: { id: o.id } })}
+                onClick={() => {
+                  // Prefer the three-look sheet if this outfit belongs to a batch.
+                  // Legacy single outfits without batch_id fall back to the detail page.
+                  if (o.batch_id) {
+                    openSheet(o.batch_id);
+                  } else {
+                    navigate({ to: "/outfit/$id", params: { id: o.id } });
+                  }
+                }}
                 className="group shrink-0 text-left"
               >
                 <motion.div
