@@ -36,11 +36,20 @@ function OutfitPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const [hoveredId, setHoveredId] = useState<string | null>(null);
 
   const outfitQuery = useQuery({
     queryKey: ["outfit", id],
     enabled: !!user,
+    // Poll every 4s while the AI render is still composing
+    refetchInterval: (query) => {
+      const o = query.state.data as
+        | { render_path?: string | null; render_status?: string | null }
+        | undefined;
+      if (!o) return false;
+      if (o.render_path) return false;
+      if (o.render_status === "failed") return false;
+      return 4000;
+    },
     queryFn: async () => {
       const { data, error } = await supabase
         .from("outfits")
@@ -58,11 +67,28 @@ function OutfitPage() {
     queryFn: async () => {
       const { data } = await supabase
         .from("wardrobe_items")
-        .select("id, thumbnail_path, enhanced_path, category, subcategory, formality_score")
+        .select(
+          "id, thumbnail_path, enhanced_path, category, subcategory, color_primary, material, formality_score",
+        )
         .in("id", outfitQuery.data!.item_ids);
       return (data ?? []) as ItemMini[];
     },
   });
+
+  // Trigger AI render once if it hasn't been kicked off yet
+  const renderRequestedRef = useRef(false);
+  useEffect(() => {
+    const o = outfitQuery.data;
+    if (!o) return;
+    if (o.render_path) return;
+    if (o.render_status === "rendering") return;
+    if (o.render_status === "failed") return;
+    if (renderRequestedRef.current) return;
+    renderRequestedRef.current = true;
+    renderOutfit({ data: { outfit_id: o.id } })
+      .then(() => qc.invalidateQueries({ queryKey: ["outfit", id] }))
+      .catch((err) => console.error("[renderOutfit] failed", err));
+  }, [outfitQuery.data, qc, id]);
 
   // Sequence number from outfit count
   const sequenceQuery = useQuery({
