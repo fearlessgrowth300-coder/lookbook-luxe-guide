@@ -365,8 +365,7 @@ export const suggestOutfit = createServerFn({ method: "POST" })
   })
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
-
-    // 1. Rate limit FIRST.
+    try {
     try {
       await checkAndIncrement(supabase, userId, "suggestOutfit", 30);
     } catch (err) {
