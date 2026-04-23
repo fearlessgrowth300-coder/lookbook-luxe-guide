@@ -36,7 +36,7 @@ function SavedPage() {
 
   return (
     <Shell>
-      <div className="mx-auto max-w-[1280px] px-6 py-12 md:px-12 lg:px-24">
+      <div className="mx-auto max-w-[1280px] px-6 py-12">
         <h1 className="font-display text-[32px] font-light text-graphite">Saved</h1>
         <p className="mt-2 font-mono text-[11px] uppercase tracking-[0.2em] text-ink">
           {query.data?.length ?? 0} LOOKS

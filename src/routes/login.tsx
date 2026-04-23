@@ -66,9 +66,9 @@ function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen flex-col bg-bone lg:flex-row">
+    <div className="flex min-h-screen flex-col bg-bone">
       {/* Hero image with Ken Burns */}
-      <div className="relative h-[40vh] overflow-hidden lg:h-screen lg:w-[55%]">
+      <div className="relative h-[40vh] overflow-hidden">
         <motion.div
           className="absolute inset-0 bg-cover bg-center"
           style={{
@@ -83,13 +83,13 @@ function LoginPage() {
           }}
         />
         <div className="absolute inset-0 bg-graphite/10" />
-        <div className="absolute bottom-8 left-8 lg:bottom-16 lg:left-16">
+        <div className="absolute bottom-8 left-8">
           <p className="font-display text-[20px] font-normal text-bone">Atelier</p>
         </div>
       </div>
 
       {/* Form */}
-      <div className="flex flex-1 items-center justify-center px-6 py-12 lg:px-16">
+      <div className="flex flex-1 items-center justify-center px-6 py-12">
         <div className="w-full max-w-[360px]">
           <motion.div
             initial={{ opacity: 0, y: 12 }}

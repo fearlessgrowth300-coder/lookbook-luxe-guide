@@ -68,7 +68,7 @@ function SettingsPage() {
 
   return (
     <Shell>
-      <div className="mx-auto max-w-[760px] px-6 py-16 md:px-12">
+      <div className="mx-auto max-w-[760px] px-6 py-16">
         <h1 className="font-display text-[32px] font-light text-graphite">Settings</h1>
         <p className="mt-2 text-[14px] text-ink">{user?.email}</p>
 
@@ -281,7 +281,7 @@ function ReferenceWorkflow({ userId }: { userId: string }) {
           No reference photo yet. Upload one or more shots above.
         </div>
       ) : (
-        <div className="mt-6 grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5">
+        <div className="mt-6 grid grid-cols-3 gap-3 sm:grid-cols-4">
           {candidates.map((c) => {
             const active = c.path === activePath;
             return (

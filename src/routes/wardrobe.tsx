@@ -200,10 +200,10 @@ function WardrobePage() {
     <Shell>
       {/* Sticky header */}
       <header className="sticky top-16 z-30 border-b border-linen bg-bone/95 backdrop-blur">
-        <div className="mx-auto flex max-w-[1280px] flex-col gap-6 px-6 py-6 md:px-12 md:py-8 lg:px-24">
+        <div className="mx-auto flex max-w-[1280px] flex-col gap-6 px-6 py-6">
           <div className="flex items-end justify-between gap-6">
             <div>
-              <h1 className="font-display text-[28px] font-light leading-none text-graphite md:text-[32px]">
+              <h1 className="font-display text-[28px] font-light leading-none text-graphite">
                 Wardrobe
               </h1>
               <p className="mt-2 font-mono text-[11px] uppercase tracking-[0.2em] text-ink">
@@ -253,7 +253,7 @@ function WardrobePage() {
             onClick={() => setEditItemId(miscategorized[0].id)}
             className="block w-full border-b border-linen bg-linen/60 hover:bg-linen"
           >
-            <div className="mx-auto flex max-w-[1280px] items-center justify-between gap-4 px-6 py-3 md:px-12 lg:px-24">
+            <div className="mx-auto flex max-w-[1280px] items-center justify-between gap-4 px-6 py-3">
               <div className="flex items-center gap-3 text-left">
                 <Sparkles className="h-4 w-4 shrink-0 text-graphite" strokeWidth={1.25} />
                 <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-graphite">
@@ -277,7 +277,7 @@ function WardrobePage() {
       </AnimatePresence>
 
       {/* Grid */}
-      <section className="mx-auto max-w-[1280px] px-6 py-12 md:px-12 lg:px-24">
+      <section className="mx-auto max-w-[1280px] px-6 py-12">
         {itemsQuery.isLoading ? (
           <Grid>
             {Array.from({ length: 8 }).map((_, i) => (
@@ -330,9 +330,9 @@ function WardrobePage() {
             animate={{ y: 0 }}
             exit={{ y: 100 }}
             transition={{ duration: dur.page, ease: ease.luxury }}
-            className="fixed bottom-16 left-0 right-0 z-40 border-t border-linen bg-bone p-4 md:bottom-0"
+            className="fixed bottom-16 left-0 right-0 z-40 border-t border-linen bg-bone p-4"
           >
-            <div className="mx-auto flex max-w-[1280px] items-center justify-between px-6 md:px-12 lg:px-24">
+            <div className="mx-auto flex max-w-[1280px] items-center justify-between px-6">
               <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-ink">
                 {selectedItemIds.size} selected
               </p>
@@ -872,7 +872,7 @@ function UploadSheet({
         style={{ borderRadius: "4px 4px 0 0" }}
       >
         {/* Header */}
-        <div className="flex items-start justify-between border-b border-linen px-6 py-6 md:px-12">
+        <div className="flex items-start justify-between border-b border-linen px-6 py-6">
           <div>
             <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-ink">
               {items.length === 0
@@ -930,7 +930,7 @@ function UploadSheet({
         />
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto px-6 py-6 md:px-12">
+        <div className="flex-1 overflow-y-auto px-6 py-6">
           {items.length === 0 ? (
             <>
               <div className="grid grid-cols-2 gap-4">
@@ -969,7 +969,7 @@ function UploadSheet({
                   if (f.length) void onFilesPicked(f);
                 }}
                 onClick={() => dropInputRef.current?.click()}
-                className={`mt-6 hidden h-40 cursor-pointer flex-col items-center justify-center border border-dashed transition-colors md:flex ${
+                className={`mt-6 hidden h-40 cursor-pointer flex-col items-center justify-center border border-dashed transition-colors ${
                   dragOver ? "border-graphite bg-linen/40" : "border-ink/40"
                 }`}
               >
@@ -1016,7 +1016,7 @@ function UploadSheet({
 
         {/* Footer — Save all */}
         {items.length > 0 && (
-          <div className="border-t border-linen bg-bone px-6 py-4 md:px-12">
+          <div className="border-t border-linen bg-bone px-6 py-4">
             <div className="flex items-center justify-between gap-4">
               <div className="font-mono text-[11px] uppercase tracking-[0.16em] text-ink">
                 {savingAll
@@ -1263,7 +1263,7 @@ function EditSheet({
         exit={{ y: "100%" }}
         transition={{ duration: dur.page, ease: ease.luxury }}
         onClick={(e) => e.stopPropagation()}
-        className="h-[85vh] w-full max-w-[1280px] overflow-y-auto bg-bone px-6 py-8 md:px-12"
+        className="h-[85vh] w-full max-w-[1280px] overflow-y-auto bg-bone px-6 py-8"
         style={{ borderRadius: "4px 4px 0 0" }}
       >
         <div className="flex items-start justify-between">

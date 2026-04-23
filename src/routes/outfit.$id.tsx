@@ -214,8 +214,8 @@ function OutfitPage() {
 
   return (
     <Shell>
-      <div className="mx-auto max-w-[1600px] px-4 py-6 md:px-8 lg:px-10">
-        <div className="grid gap-8 xl:grid-cols-[minmax(0,1.8fr)_420px]">
+      <div className="mx-auto max-w-[1600px] px-4 py-6">
+        <div className="grid gap-8">
           {/* Composition view — model wearing the outfit + callout labels */}
           <div className="relative flex min-h-[92vh] flex-col bg-bone">
             <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-ink">
@@ -311,7 +311,7 @@ function OutfitPage() {
             </div>
 
             {/* Actions */}
-            <div className="sticky bottom-16 mt-12 grid grid-cols-4 gap-2 border-t border-linen bg-bone pt-6 md:bottom-0">
+            <div className="sticky bottom-16 mt-12 grid grid-cols-4 gap-2 border-t border-linen bg-bone pt-6">
               <ActionBtn
                 label="Save"
                 icon={
