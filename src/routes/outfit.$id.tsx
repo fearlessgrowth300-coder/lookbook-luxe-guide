@@ -28,6 +28,8 @@ interface ItemMini {
   enhanced_path: string | null;
   category: string | null;
   subcategory: string | null;
+  color_primary: string | null;
+  material: string | null;
   formality_score: number | null;
 }
 
