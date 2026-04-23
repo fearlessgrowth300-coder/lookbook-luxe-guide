@@ -420,14 +420,32 @@ function Tile({
   const enhancedUrl = item?.enhanced_path
     ? supabase.storage.from("wardrobe-enhanced").getPublicUrl(item.enhanced_path).data.publicUrl
     : null;
-  const [imgUrl, setImgUrl] = useState<string | null>(pending?.previewUrl ?? enhancedUrl ?? thumbUrl);
+  // Prefer thumbnail (≈16KB) over enhanced PNG (≈1MB) for grid rendering.
+  // Enhanced is only used as a fallback when thumb is missing or fails.
+  const initialUrl = pending?.previewUrl ?? thumbUrl ?? enhancedUrl;
+  const [imgUrl, setImgUrl] = useState<string | null>(initialUrl);
+  const [broken, setBroken] = useState(false);
 
   const longPressTimer = useRef<number | null>(null);
   const longPressFiredRef = useRef(false);
 
   useEffect(() => {
-    setImgUrl(pending?.previewUrl ?? enhancedUrl ?? thumbUrl);
+    setImgUrl(pending?.previewUrl ?? thumbUrl ?? enhancedUrl);
+    setBroken(false);
   }, [enhancedUrl, pending?.previewUrl, thumbUrl]);
+
+  // One-shot diagnostic — log only when an image fails or is missing a path.
+  useEffect(() => {
+    if (!item || pending) return;
+    if (!thumbUrl && !enhancedUrl) {
+      // eslint-disable-next-line no-console
+      console.warn("[wardrobe-tile] no image paths", {
+        id: item.id,
+        thumbnail_path: item.thumbnail_path,
+        enhanced_path: item.enhanced_path,
+      });
+    }
+  }, [item, pending, thumbUrl, enhancedUrl]);
 
   return (
     <motion.div
@@ -469,23 +487,43 @@ function Tile({
       {!imgUrl || pending ? (
         <div className="absolute inset-3 atelier-shimmer" />
       ) : item ? (
-        <motion.img
-          src={imgUrl}
-          alt={item.subcategory || "Wardrobe item"}
-          loading="lazy"
-          onError={() => {
-            if (imgUrl !== thumbUrl && thumbUrl) {
-              setImgUrl(thumbUrl);
-              return;
-            }
-
-            setImgUrl(null);
-          }}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.42, ease: ease.luxury }}
-          className="h-full w-full object-contain"
-        />
+        broken ? (
+          <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-ink/40">
+            <ImageIcon className="h-6 w-6" strokeWidth={1.25} />
+            <span className="font-mono text-[10px] uppercase tracking-[0.16em]">
+              {item.category || "item"}
+            </span>
+          </div>
+        ) : (
+          <motion.img
+            src={imgUrl}
+            alt={item.subcategory || "Wardrobe item"}
+            loading="lazy"
+            decoding="async"
+            onError={() => {
+              // Try enhanced as a fallback if thumbnail failed
+              if (imgUrl === thumbUrl && enhancedUrl) {
+                // eslint-disable-next-line no-console
+                console.warn("[wardrobe-tile] thumb failed, falling back to enhanced", {
+                  id: item.id,
+                  thumb: thumbUrl,
+                });
+                setImgUrl(enhancedUrl);
+                return;
+              }
+              // eslint-disable-next-line no-console
+              console.error("[wardrobe-tile] image failed to load", {
+                id: item.id,
+                url: imgUrl,
+              });
+              setBroken(true);
+            }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.42, ease: ease.luxury }}
+            className="h-full w-full object-contain"
+          />
+        )
       ) : null}
 
       {pending && imgUrl && (
