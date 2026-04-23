@@ -8,7 +8,7 @@ import { Shell } from "@/components/Shell";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { ThreeLooksSheet } from "@/components/ThreeLooksSheet";
 import { useAuth } from "@/lib/auth";
-import { useUI, type Mood } from "@/lib/store";
+import { useUI, useThreeLooksSheet, type Mood } from "@/lib/store";
 import { supabase } from "@/integrations/supabase/client";
 import { ease, dur, tap } from "@/lib/motion";
 import { type Occasion } from "@/server/mock-ai";
