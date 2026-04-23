@@ -273,8 +273,7 @@ function TodayPage() {
 
       // First successful generation → arm the install prompt strip.
       markInstallPromptReady();
-      setActiveBatch(result.batch_id);
-      setSheetOpen(true);
+      openSheet(result.batch_id);
     } catch (e) {
       console.error("[handleGenerate] threw:", e);
       setShake((s) => s + 1);
