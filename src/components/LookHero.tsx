@@ -82,10 +82,14 @@ export function LookHero({
   // Bigger render — fills the available height of its container
   const heroMaxH =
     size === "lg"
-      ? "max-h-[min(85vh,960px)]"
-      : "max-h-[min(72vh,720px)]";
+      ? "max-h-[min(90vh,1120px)]"
+      : "max-h-[min(80vh,860px)]";
   const sideW =
-    size === "lg" ? "w-[120px] sm:w-[160px]" : "w-[96px] sm:w-[130px]";
+    size === "lg" ? "w-[82px] sm:w-[110px] md:w-[136px]" : "w-[64px] sm:w-[88px] md:w-[112px]";
+  const heroFrameStyle =
+    size === "lg"
+      ? { minHeight: "min(90vh, 1120px)", width: "min(78vw, 1080px)" }
+      : { minHeight: "min(80vh, 860px)", width: "min(76vw, 860px)" };
 
   return (
     <div className="relative flex h-full w-full items-stretch justify-center gap-1 sm:gap-2">
@@ -109,13 +113,18 @@ export function LookHero({
             initial={{ opacity: 0, scale: 0.96 }}
             animate={revealed ? { opacity: 1, scale: 1 } : {}}
             transition={{ duration: 0.7, ease: ease.luxury }}
-            className="relative flex flex-col items-center"
+            className="relative flex w-full flex-col items-center justify-center"
+            style={heroFrameStyle}
           >
             <img
               src={renderUrl}
               alt={outfit.name ?? "Look"}
-              className={`h-auto w-auto object-contain ${heroMaxH}`}
+              loading="eager"
+              fetchPriority="high"
+              decoding="async"
+              className={`h-auto w-full max-w-full object-contain ${heroMaxH}`}
               style={{
+                maxWidth: "100%",
                 filter: "drop-shadow(0 18px 36px rgba(0,0,0,0.12))",
                 imageRendering: "auto",
               }}
@@ -246,9 +255,13 @@ function FallbackStack({
   revealed: boolean;
   size: "md" | "lg";
 }) {
-  const itemH = size === "lg" ? "h-[150px]" : "h-[110px]";
+  const itemH = size === "lg" ? "h-[210px]" : "h-[152px]";
+  const frameStyle =
+    size === "lg"
+      ? { minHeight: "min(90vh, 1120px)", width: "min(78vw, 1080px)" }
+      : { minHeight: "min(80vh, 860px)", width: "min(76vw, 860px)" };
   return (
-    <div className="flex flex-col items-center">
+    <div className="flex w-full flex-col items-center justify-center" style={frameStyle}>
       {items.map((item, i) => {
         const url = item.enhanced_path
           ? supabase.storage
