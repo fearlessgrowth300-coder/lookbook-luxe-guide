@@ -17,6 +17,7 @@ import { useAuth } from "@/lib/auth";
 import { supabase } from "@/integrations/supabase/client";
 import { ease, dur, tap } from "@/lib/motion";
 import { suggestOutfit } from "@/server/functions/suggestOutfit";
+import { renderOutfit } from "@/server/functions/renderOutfit";
 import { type Occasion } from "@/server/mock-ai";
 
 const OCCASIONS: Occasion[] = [
@@ -68,6 +69,8 @@ interface OutfitRecord {
   name: string | null;
   look_sequence: number | null;
   batch_id: string | null;
+  render_path: string | null;
+  render_status: string | null;
 }
 
 function ThreeLooksPage() {
