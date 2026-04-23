@@ -108,11 +108,22 @@ function ThreeLooksPage() {
   const batchQuery = useQuery({
     queryKey: ["outfit-batch", searchBatch],
     enabled: !!searchBatch && !!user,
+    // Poll every 4s while any outfit is still rendering
+    refetchInterval: (query) => {
+      const data = query.state.data as OutfitRecord[] | undefined;
+      if (!data || data.length === 0) return 4000;
+      const stillPending = data.some(
+        (o) =>
+          !o.render_path &&
+          o.render_status !== "failed",
+      );
+      return stillPending ? 4000 : false;
+    },
     queryFn: async () => {
       const { data, error } = await supabase
         .from("outfits")
         .select(
-          "id, item_ids, rationale, occasion, saved, name, look_sequence, batch_id",
+          "id, item_ids, rationale, occasion, saved, name, look_sequence, batch_id, render_path, render_status",
         )
         .eq("batch_id", searchBatch!)
         .order("look_sequence", { ascending: true });
@@ -121,11 +132,34 @@ function ThreeLooksPage() {
     },
   });
 
+  // Trigger AI render for each outfit that hasn't started yet (fire-and-forget,
+  // sequential to keep gateway load low). Each id is requested only once per
+  // mount via the requestedRef.
+  const requestedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    if (batchQuery.data) {
-      setOutfits(batchQuery.data);
-    }
-  }, [batchQuery.data]);
+    if (!batchQuery.data || batchQuery.data.length === 0) return;
+    const toRender = batchQuery.data.filter(
+      (o) =>
+        !o.render_path &&
+        o.render_status !== "rendering" &&
+        o.render_status !== "failed" &&
+        !requestedRef.current.has(o.id),
+    );
+    if (toRender.length === 0) return;
+
+    (async () => {
+      for (const o of toRender) {
+        if (requestedRef.current.has(o.id)) continue;
+        requestedRef.current.add(o.id);
+        try {
+          await renderOutfit({ data: { outfit_id: o.id } });
+          qc.invalidateQueries({ queryKey: ["outfit-batch", searchBatch] });
+        } catch (err) {
+          console.error("[renderOutfit] failed for", o.id, err);
+        }
+      }
+    })();
+  }, [batchQuery.data, qc, searchBatch]);
 
   const effectiveOccasion: Occasion = useMemo(() => {
     const fromBatch = outfits[0]?.occasion;
