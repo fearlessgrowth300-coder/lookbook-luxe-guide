@@ -445,9 +445,13 @@ function SheetInner({
 
 function ActionRow({
   outfit,
+  mannequinLoading,
+  onSeeOnMe,
   onDetails,
 }: {
   outfit: OutfitRecord;
+  mannequinLoading: boolean;
+  onSeeOnMe: () => void;
   onDetails: () => void;
 }) {
   const [saved, setSaved] = useState(outfit.saved ?? false);
@@ -486,8 +490,17 @@ function ActionRow({
     }
   }
 
+  const hasMannequin = !!outfit.mannequin_path;
+
   return (
     <div className="flex h-14 shrink-0 items-stretch border-t border-linen bg-bone">
+      <ActionIcon
+        label={hasMannequin ? "ON ME" : "SEE ON ME"}
+        active={hasMannequin}
+        disabled={mannequinLoading}
+        icon={<User className="h-5 w-5" strokeWidth={1.5} />}
+        onClick={onSeeOnMe}
+      />
       <ActionIcon
         label="SAVE"
         active={saved}
@@ -523,18 +536,21 @@ function ActionIcon({
   label,
   icon,
   active,
+  disabled,
   onClick,
 }: {
   label: string;
   icon: React.ReactNode;
   active?: boolean;
+  disabled?: boolean;
   onClick: () => void;
 }) {
   return (
     <motion.button
       {...tap}
       onClick={onClick}
-      className="flex flex-1 flex-col items-center justify-center gap-1"
+      disabled={disabled}
+      className="flex flex-1 flex-col items-center justify-center gap-1 disabled:opacity-50"
       aria-label={label}
     >
       <span
@@ -560,11 +576,13 @@ function LookPanel({
   index,
   items,
   isActive,
+  mannequinLoading,
 }: {
   outfit: OutfitRecord;
   index: number;
   items: ItemFull[];
   isActive: boolean;
+  mannequinLoading: boolean;
 }) {
   const [revealed, setRevealed] = useState(false);
 
