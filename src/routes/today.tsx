@@ -151,20 +151,8 @@ function TodayPage() {
     },
   });
 
-  // Recent outfits
-  const recentQuery = useQuery({
-    queryKey: ["recent-outfits", user?.id],
-    enabled: !!user,
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("outfits")
-        .select("id, occasion, rationale, generated_at, batch_id")
-        .eq("user_id", user!.id)
-        .order("generated_at", { ascending: false })
-        .limit(5);
-      return data ?? [];
-    },
-  });
+  // Recent looks rail removed — Today is single-viewport. Saved tab is
+  // where outfit history lives.
 
   // Wardrobe for occasion gating + generation
   const wardrobeQuery = useQuery({
@@ -292,18 +280,18 @@ function TodayPage() {
     <Shell>
       <AmbientBackdrop />
       {/* Hero */}
-      <section className="flex min-h-[calc(100vh-64px)] flex-col items-center justify-center px-6">
+      <section className="relative z-10 flex min-h-[calc(100vh-64px)] flex-col items-center justify-center px-6">
         <div className="w-full max-w-[680px]">
           <motion.p
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: dur.hover, ease: ease.luxury }}
-            className="font-mono text-[11px] uppercase tracking-[0.2em] text-ink"
+            className="font-mono text-[11px] uppercase tracking-[0.2em] text-bone/70"
           >
             {dateLabel}
           </motion.p>
 
-          <h1 className="mt-8 font-display text-[36px] font-light leading-[1.1] text-graphite">
+          <h1 className="mt-8 font-display text-[36px] font-light leading-[1.1] text-bone">
             {promptQuery.isLoading || !promptText ? (
               <span className="inline-block h-[1.1em] w-[80%] atelier-shimmer" />
             ) : (
@@ -350,10 +338,10 @@ function TodayPage() {
                   }
                   animate={{ opacity: isDimmed ? 0.5 : 1 }}
                   transition={{ duration: 0.22, ease: ease.tactile }}
-                  className={`group h-10 rounded-full border border-ink px-6 text-[15px] transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                  className={`group h-10 rounded-full border border-bone/60 px-6 text-[15px] transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                     isSelected
-                      ? "bg-graphite text-bone"
-                      : "text-graphite hover:bg-graphite hover:text-bone"
+                      ? "bg-bone text-graphite"
+                      : "text-bone hover:bg-bone hover:text-graphite"
                   }`}
                   style={{
                     transitionDuration: "220ms",
@@ -366,7 +354,7 @@ function TodayPage() {
             })}
             <button
               onClick={() => setMoreOpen(true)}
-              className="ml-2 font-mono text-[11px] uppercase tracking-[0.16em] text-ink transition-colors hover:text-graphite"
+              className="ml-2 font-mono text-[11px] uppercase tracking-[0.16em] text-bone/70 transition-colors hover:text-bone"
             >
               More occasions →
             </button>
@@ -394,7 +382,7 @@ function TodayPage() {
                   }
                   transition={{ duration: 0.4, ease: ease.tactile }}
                   whileTap={{ scale: 0.98 }}
-                  className="relative h-14 w-full max-w-[360px] bg-graphite text-bone transition-colors hover:bg-noir disabled:opacity-70"
+                  className="relative h-14 w-full max-w-[360px] bg-bone text-graphite transition-colors hover:bg-bone/90 disabled:opacity-70"
                   style={{
                     fontFamily: "var(--font-display, Fraunces), serif",
                     fontSize: "17px",
@@ -408,11 +396,11 @@ function TodayPage() {
           </AnimatePresence>
 
           {(wardrobeQuery.data?.length ?? 0) === 0 && (
-            <p className="mt-6 text-[14px] text-ink">
+            <p className="mt-6 text-[14px] text-bone/80">
               Your wardrobe is empty.{" "}
               <button
                 onClick={() => navigate({ to: "/wardrobe" })}
-                className="border-b border-graphite text-graphite"
+                className="border-b border-bone text-bone"
               >
                 Add a piece
               </button>{" "}
@@ -423,7 +411,7 @@ function TodayPage() {
       </section>
 
       {/* Context strip */}
-      <section className="border-y border-linen">
+      <section className="relative z-10 border-y border-bone/20">
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -432,13 +420,13 @@ function TodayPage() {
         >
           <Cell icon={<Cloud className="h-4 w-4" strokeWidth={1.25} />} label="14° Overcast" />
           <Cell icon={<Calendar className="h-4 w-4" strokeWidth={1.25} />} label="No events" />
-          <div className="flex flex-1 items-center justify-center gap-1 border-l border-linen">
+          <div className="flex flex-1 items-center justify-center gap-1 border-l border-bone/20">
             {(["sharp", "easy", "playful"] as Mood[]).map((m) => (
               <button
                 key={m}
                 onClick={() => setMood(m)}
                 className={`h-7 px-3 font-mono text-[10px] uppercase tracking-[0.16em] transition-colors ${
-                  mood === m ? "bg-graphite text-bone" : "text-ink hover:text-graphite"
+                  mood === m ? "bg-bone text-graphite" : "text-bone/70 hover:text-bone"
                 }`}
                 style={{ borderRadius: "2px" }}
               >
@@ -449,53 +437,7 @@ function TodayPage() {
         </motion.div>
       </section>
 
-      {/* Recent outfits */}
-      {(recentQuery.data?.length ?? 0) > 0 && (
-        <section className="px-6 py-16">
-          <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-ink">
-            Recent looks
-          </p>
-          <div className="atelier-rail mt-6 flex gap-4 overflow-x-auto pb-4">
-            {recentQuery.data!.map((o) => (
-              <button
-                key={o.id}
-                onClick={() => {
-                  // Prefer the three-look sheet if this outfit belongs to a batch.
-                  // Legacy single outfits without batch_id fall back to the detail page.
-                  if (o.batch_id) {
-                    openSheet(o.batch_id);
-                  } else {
-                    navigate({ to: "/outfit/$id", params: { id: o.id } });
-                  }
-                }}
-                className="group shrink-0 text-left"
-              >
-                <motion.div
-                  whileHover={{ y: -4 }}
-                  transition={{ duration: dur.hover, ease: ease.tactile }}
-                  className="h-[260px] w-[200px] bg-linen p-4"
-                >
-                  <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink">
-                    {o.occasion}
-                  </p>
-                  <p className="mt-3 font-display text-[15px] italic leading-snug text-graphite line-clamp-4">
-                    {o.rationale}
-                  </p>
-                </motion.div>
-                <div className="relative mt-3 inline-block">
-                  <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink">
-                    {new Date(o.generated_at!).toLocaleDateString()}
-                  </span>
-                  <span
-                    className="absolute -bottom-1 left-0 h-px w-full origin-left scale-x-0 bg-champagne transition-transform group-hover:scale-x-100"
-                    style={{ transitionDuration: "320ms", transitionTimingFunction: "cubic-bezier(0.4,0,0.2,1)" }}
-                  />
-                </div>
-              </button>
-            ))}
-          </div>
-        </section>
-      )}
+      {/* Recent looks rail removed — Saved tab houses outfit history. */}
 
       {/* More occasions modal */}
       {moreOpen && (
@@ -522,9 +464,9 @@ function TodayPage() {
 
 function Cell({ icon, label }: { icon: React.ReactNode; label: string }) {
   return (
-    <div className="flex flex-1 items-center justify-center gap-2 border-l border-linen first:border-l-0">
-      <span className="text-ink">{icon}</span>
-      <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-ink">
+    <div className="flex flex-1 items-center justify-center gap-2 border-l border-bone/20 first:border-l-0">
+      <span className="text-bone/80">{icon}</span>
+      <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-bone/80">
         {label}
       </span>
     </div>
@@ -537,7 +479,7 @@ function DriftDots() {
       {[0, 1, 2].map((i) => (
         <motion.span
           key={i}
-          className="block h-1.5 w-1.5 rounded-full bg-bone"
+          className="block h-1.5 w-1.5 rounded-full bg-graphite"
           animate={{ opacity: [0.3, 1, 0.3], y: [0, -2, 0] }}
           transition={{
             duration: 1.2,

@@ -12,6 +12,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { ease } from "@/lib/motion";
+import { hexToColorName } from "@/server/lib/color-names";
 
 export interface LookHeroItem {
   id: string;
@@ -241,8 +242,9 @@ function CalloutLabel({
           {(item.subcategory || item.category || "item").toLowerCase()}
         </p>
         <p className="mt-0.5 font-mono text-[8px] uppercase tracking-[0.18em] text-ink/60 sm:text-[9px]">
-          {[item.material, item.color_primary].filter(Boolean).join(" · ") ||
-            "—"}
+          {[item.material, hexToColorName(item.color_primary)]
+            .filter(Boolean)
+            .join(" · ") || "—"}
         </p>
       </motion.div>
     </div>

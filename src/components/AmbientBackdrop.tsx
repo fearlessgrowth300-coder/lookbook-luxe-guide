@@ -12,19 +12,7 @@
 
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-
-const MOOD_IMAGES = [
-  "/mood/mood-01.jpg",
-  "/mood/mood-02.jpg",
-  "/mood/mood-03.jpg",
-  "/mood/mood-04.jpg",
-  "/mood/mood-05.jpg",
-  "/mood/mood-06.jpg",
-  "/mood/mood-07.jpg",
-  "/mood/mood-08.jpg",
-  "/mood/mood-09.jpg",
-  "/mood/mood-10.jpg",
-];
+import { MOOD_IMAGES } from "@/lib/mood-images";
 
 const CYCLE_MS = 7000;
 const FADE_MS = 1400;
@@ -90,10 +78,13 @@ export function AmbientBackdrop() {
         {currentSrc && (
           <motion.div
             key={currentSrc}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
+            initial={{ opacity: 0, scale: 1.04 }}
+            animate={{ opacity: 1, scale: 1.12 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: FADE_MS / 1000, ease: [0.4, 0, 0.2, 1] }}
+            transition={{
+              opacity: { duration: FADE_MS / 1000, ease: [0.4, 0, 0.2, 1] },
+              scale: { duration: (CYCLE_MS + FADE_MS) / 1000, ease: "linear" },
+            }}
             className="absolute inset-0 bg-cover bg-center"
             style={{ backgroundImage: `url('${currentSrc}')` }}
           />
@@ -106,17 +97,7 @@ export function AmbientBackdrop() {
         className="absolute inset-0"
         style={{
           background:
-            "linear-gradient(180deg, rgba(20,20,22,0.72) 0%, rgba(20,20,22,0.62) 50%, rgba(20,20,22,0.92) 100%)",
-        }}
-      />
-
-      {/* Bottom fade-out so the rest of the page (Recent looks etc.) returns
-          to bone smoothly. */}
-      <div
-        className="absolute inset-x-0 bottom-0 h-[40vh]"
-        style={{
-          background:
-            "linear-gradient(180deg, rgba(245,241,234,0) 0%, var(--bone) 100%)",
+            "linear-gradient(180deg, rgba(20,20,22,0.62) 0%, rgba(20,20,22,0.55) 50%, rgba(20,20,22,0.78) 100%)",
         }}
       />
     </div>
