@@ -221,16 +221,17 @@ function TodayPage() {
 
       if ("error" in result) {
         console.warn("[suggestOutfit] error result:", result);
+        let errMsg = "Something went wrong. Try again.";
         switch (result.error) {
           case "rate_limited":
-            toast("Daily limit reached. Try again after midnight.");
+            errMsg = "Daily limit reached. Try again after midnight.";
             break;
           case "insufficient_wardrobe":
-            toast("Add at least 5 items to compose looks.");
+            errMsg = "Add at least 5 items to compose looks.";
             break;
           case "insufficient_for_occasion": {
             const what = (result.missing ?? []).join(", ") || "items";
-            toast(`Add ${what} to compose ${selected} looks.`);
+            errMsg = `Add ${what} to compose ${selected} looks.`;
             break;
           }
           case "composition_failed": {
@@ -238,26 +239,23 @@ function TodayPage() {
               ? result.reasons
               : [];
             if (reasons.includes("formality_variance")) {
-              toast(
-                "Your wardrobe has very mixed formality. Try adding a piece closer to 6-7 formality.",
-              );
+              errMsg =
+                "Wardrobe has very mixed formality. Add a piece around 6–7 formality.";
             } else if (reasons.includes("hallucinated_id")) {
-              toast("AI returned invalid items. Try again.");
+              errMsg = "AI returned invalid items. Try again.";
             } else {
-              toast(
-                result.message ?? "Something went wrong. Pull down to refresh and try again.",
-              );
+              errMsg = result.message ?? "Couldn't compose a look. Try again.";
             }
             break;
           }
           case "unexpected":
-            toast(
-              `Compose failed: ${("message" in result && result.message) || "unknown error"}`,
-            );
+            errMsg = `Compose failed: ${
+              ("message" in result && result.message) || "unknown error"
+            }`;
             break;
-          default:
-            toast("Something went wrong. Pull down to refresh and try again.");
         }
+        toast(errMsg);
+        setLastError(errMsg);
         setShake((s) => s + 1);
         return;
       }
@@ -269,7 +267,9 @@ function TodayPage() {
       console.error("[handleGenerate] threw:", e);
       setShake((s) => s + 1);
       const msg = e instanceof Error ? e.message : String(e);
-      toast(`Couldn't compose looks: ${msg.slice(0, 80)}`);
+      const errMsg = `Couldn't compose looks: ${msg.slice(0, 100)}`;
+      toast(errMsg);
+      setLastError(errMsg);
     } finally {
       setGenerating(false);
     }
