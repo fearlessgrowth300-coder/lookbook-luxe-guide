@@ -1,10 +1,14 @@
-// Shared "model wearing the outfit" hero used by /today/looks and /outfit/$id.
-// Renders the AI-composed model image (when ready) flanked by thin connector
-// lines + labels for each item — LOOK 6 / SSENSE editorial style.
+// Look composition view used inside the Three Looks sheet.
 //
-// While the AI render is still pending, falls back to a centered stack of the
-// background-removed item PNGs and shows a "Composing on figure…" indicator.
-import { motion } from "framer-motion";
+// DEFAULT: flat-lay composition — items stacked on a central vertical axis
+// with side callout labels (LOOK 6 / SSENSE editorial). Cheap, instant.
+//
+// ON DEMAND: when the user taps "SEE ON ME" in the action row, the parent
+// triggers the mannequin generation server function which caches the result
+// to outfits.mannequin_path. While generating, this component shows a 15s
+// shimmer overlay; on success the mannequin image fades in (420ms) over
+// the flat-lay with the callout labels still visible.
+import { motion, AnimatePresence } from "framer-motion";
 import { useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { ease } from "@/lib/motion";
@@ -24,6 +28,8 @@ export interface LookHeroOutfit {
   name: string | null;
   render_path: string | null;
   render_status: string | null;
+  mannequin_path?: string | null;
+  mannequin_status?: string | null;
 }
 
 export function LookHero({
@@ -31,18 +37,15 @@ export function LookHero({
   items,
   revealed = true,
   size = "md",
+  mannequinLoading = false,
 }: {
   outfit: LookHeroOutfit;
   items: LookHeroItem[];
   revealed?: boolean;
-  /** "md" = today/looks panel, "lg" = full outfit detail page */
   size?: "md" | "lg";
+  /** Parent signals an in-flight "see on me" generation. */
+  mannequinLoading?: boolean;
 }) {
-  const renderUrl = outfit.render_path
-    ? supabase.storage.from("outfit-renders").getPublicUrl(outfit.render_path)
-        .data.publicUrl
-    : null;
-
   // Order items: outerwear → top/dress → bottom → shoes → accessories
   const ordered = useMemo(() => {
     const order = [
@@ -61,7 +64,7 @@ export function LookHero({
     );
   }, [items]);
 
-  // Split into left/right callouts: alternate to balance both sides.
+  // Split callouts left/right
   const { leftItems, rightItems } = useMemo(() => {
     const left: LookHeroItem[] = [];
     const right: LookHeroItem[] = [];
@@ -72,24 +75,18 @@ export function LookHero({
     return { leftItems: left, rightItems: right };
   }, [ordered]);
 
-  const isRendering =
-    !renderUrl &&
-    (outfit.render_status === "rendering" ||
-      outfit.render_status === "pending" ||
-      outfit.render_status === null);
-  const renderFailed = outfit.render_status === "failed";
+  // Resolve the on-demand mannequin URL (cached after first generation).
+  const mannequinUrl = outfit.mannequin_path
+    ? supabase.storage.from("outfit-renders").getPublicUrl(outfit.mannequin_path)
+        .data.publicUrl
+    : null;
 
-  // Bigger render — fills the available height of its container
-  const heroMaxH =
-    size === "lg"
-      ? "max-h-[min(90vh,1120px)]"
-      : "max-h-[min(80vh,860px)]";
   const sideW =
     size === "lg" ? "w-[82px] sm:w-[110px]" : "w-[64px] sm:w-[88px]";
   const heroFrameStyle =
     size === "lg"
       ? { minHeight: "min(90vh, 1120px)", width: "min(78vw, 1080px)" }
-      : { minHeight: "min(80vh, 860px)", width: "min(76vw, 860px)" };
+      : { minHeight: "min(72vh, 740px)", width: "min(72vw, 740px)" };
 
   return (
     <div className="relative flex h-full w-full items-stretch justify-center gap-1 sm:gap-2">
@@ -106,56 +103,66 @@ export function LookHero({
         ))}
       </div>
 
-      {/* Center: AI render or fallback stack */}
+      {/* Center composition */}
       <div className="relative flex flex-1 flex-col items-center justify-center">
-        {renderUrl ? (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.96 }}
-            animate={revealed ? { opacity: 1, scale: 1 } : {}}
-            transition={{ duration: 0.7, ease: ease.luxury }}
-            className="relative flex w-full flex-col items-center justify-center"
-            style={heroFrameStyle}
-          >
-            <img
-              src={renderUrl}
-              alt={outfit.name ?? "Look"}
-              loading="eager"
-              fetchPriority="high"
-              decoding="async"
-              className={`h-auto w-full max-w-full object-contain ${heroMaxH}`}
-              style={{
-                maxWidth: "100%",
-                filter: "drop-shadow(0 18px 36px rgba(0,0,0,0.12))",
-                imageRendering: "auto",
-              }}
-            />
-            {/* Soft ground shadow */}
-            <div
-              aria-hidden
-              className="mt-1 h-2"
-              style={{
-                width: "55%",
-                background: "var(--ink)",
-                borderRadius: "50%",
-                filter: "blur(10px)",
-                opacity: 0.16,
-              }}
-            />
-          </motion.div>
-        ) : (
-          <FallbackStack items={ordered} revealed={revealed} size={size} />
-        )}
+        <div
+          className="relative flex w-full flex-col items-center justify-center"
+          style={heroFrameStyle}
+        >
+          {/* Flat-lay always rendered as base layer */}
+          <FlatLay items={ordered} revealed={revealed} size={size} />
 
-        {isRendering && (
-          <p className="mt-3 font-mono text-[9px] uppercase tracking-[0.22em] text-ink/60 sm:text-[10px]">
-            Composing on figure…
-          </p>
-        )}
-        {renderFailed && (
-          <p className="mt-3 font-mono text-[9px] uppercase tracking-[0.22em] text-ink/60 sm:text-[10px]">
-            Couldn't compose figure — showing items
-          </p>
-        )}
+          {/* Mannequin overlay — fades in over the flat-lay when ready */}
+          <AnimatePresence>
+            {mannequinUrl && (
+              <motion.img
+                key={mannequinUrl}
+                src={mannequinUrl}
+                alt={outfit.name ?? "Look"}
+                loading="eager"
+                fetchPriority="high"
+                decoding="async"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.42, ease: ease.luxury }}
+                className="absolute inset-0 m-auto h-auto w-full max-w-full object-contain"
+                style={{
+                  filter: "drop-shadow(0 18px 36px rgba(0,0,0,0.18))",
+                }}
+              />
+            )}
+          </AnimatePresence>
+
+          {/* Generating shimmer — covers the composition area while waiting */}
+          <AnimatePresence>
+            {mannequinLoading && !mannequinUrl && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.32, ease: ease.luxury }}
+                className="absolute inset-0 flex flex-col items-center justify-center"
+              >
+                <div
+                  className="absolute inset-0"
+                  style={{
+                    background:
+                      "linear-gradient(135deg, color-mix(in oklab, var(--linen) 92%, transparent), color-mix(in oklab, var(--bone) 60%, transparent))",
+                    backdropFilter: "blur(2px)",
+                  }}
+                />
+                <div className="atelier-shimmer absolute inset-x-8 top-1/2 h-2 -translate-y-1/2 rounded-full" />
+                <p className="relative mt-4 font-mono text-[10px] uppercase tracking-[0.24em] text-graphite">
+                  Composing on figure
+                </p>
+                <p className="relative mt-2 font-mono text-[9px] uppercase tracking-[0.22em] text-ink/60">
+                  ~15 seconds
+                </p>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
       </div>
 
       {/* Right callouts */}
@@ -192,7 +199,6 @@ function CalloutLabel({
     <div
       className={`relative flex items-center ${isLeft ? "justify-end pr-3 text-right" : "justify-start pl-3 text-left"}`}
     >
-      {/* Connector line: small dot near figure → horizontal segment → label edge */}
       <svg
         width="28"
         height="14"
@@ -225,7 +231,6 @@ function CalloutLabel({
         />
       </svg>
 
-      {/* Label content */}
       <motion.div
         initial={{ opacity: 0, x: isLeft ? -4 : 4 }}
         animate={revealed ? { opacity: 1, x: 0 } : {}}
@@ -244,9 +249,9 @@ function CalloutLabel({
   );
 }
 
-/* ─────────────────────────── Fallback stack ─────────────────────────── */
+/* ─────────────────────────── Flat lay (default) ─────────────────────────── */
 
-function FallbackStack({
+function FlatLay({
   items,
   revealed,
   size,
@@ -256,12 +261,8 @@ function FallbackStack({
   size: "md" | "lg";
 }) {
   const itemH = size === "lg" ? "h-[210px]" : "h-[152px]";
-  const frameStyle =
-    size === "lg"
-      ? { minHeight: "min(90vh, 1120px)", width: "min(78vw, 1080px)" }
-      : { minHeight: "min(80vh, 860px)", width: "min(76vw, 860px)" };
   return (
-    <div className="flex w-full flex-col items-center justify-center" style={frameStyle}>
+    <div className="flex h-full w-full flex-col items-center justify-center">
       {items.map((item, i) => {
         const url = item.enhanced_path
           ? supabase.storage
@@ -288,6 +289,8 @@ function FallbackStack({
               <img
                 src={url}
                 alt={item.subcategory ?? ""}
+                loading="lazy"
+                decoding="async"
                 className="max-h-full max-w-full object-contain"
                 style={{ filter: "drop-shadow(0 4px 8px rgba(0,0,0,0.06))" }}
               />
