@@ -400,6 +400,7 @@ function SheetInner({
                       .filter(Boolean) as ItemFull[]
                   }
                   isActive={activeIndex === i}
+                  mannequinLoading={p.outfit.mannequin_status === "rendering"}
                 />
               ) : (
                 <InvitePanel
@@ -419,6 +420,11 @@ function SheetInner({
         {activeOutfit && (
           <ActionRow
             outfit={activeOutfit}
+            mannequinLoading={
+              activeOutfit.mannequin_status === "rendering" ||
+              mannequinInFlightRef.current.has(activeOutfit.id)
+            }
+            onSeeOnMe={() => handleSeeOnMe(activeOutfit.id)}
             onDetails={() => {
               onClose();
               navigate({
