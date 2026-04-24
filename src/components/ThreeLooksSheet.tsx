@@ -16,6 +16,7 @@ import {
   ArrowRight,
   Share2,
   Plus,
+  User,
 } from "lucide-react";
 import { toast } from "sonner";
 import { LookHero } from "@/components/LookHero";
@@ -24,6 +25,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { ease, tap } from "@/lib/motion";
 import { suggestOutfit } from "@/server/functions/suggestOutfit";
 import { renderOutfit } from "@/server/functions/renderOutfit";
+import { generateMannequin } from "@/server/functions/generateMannequin";
 import { type Occasion } from "@/server/mock-ai";
 
 const OCCASIONS: Occasion[] = [
@@ -57,6 +59,8 @@ interface OutfitRecord {
   batch_id: string | null;
   render_path: string | null;
   render_status: string | null;
+  mannequin_path: string | null;
+  mannequin_status: string | null;
 }
 
 export function ThreeLooksSheet({
