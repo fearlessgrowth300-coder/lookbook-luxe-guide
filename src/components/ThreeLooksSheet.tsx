@@ -16,6 +16,7 @@ import {
   ArrowRight,
   Share2,
   Plus,
+  User,
 } from "lucide-react";
 import { toast } from "sonner";
 import { LookHero } from "@/components/LookHero";
@@ -23,7 +24,7 @@ import { useAuth } from "@/lib/auth";
 import { supabase } from "@/integrations/supabase/client";
 import { ease, tap } from "@/lib/motion";
 import { suggestOutfit } from "@/server/functions/suggestOutfit";
-import { renderOutfit } from "@/server/functions/renderOutfit";
+import { generateMannequin } from "@/server/functions/generateMannequin";
 import { type Occasion } from "@/server/mock-ai";
 
 const OCCASIONS: Occasion[] = [
@@ -57,6 +58,8 @@ interface OutfitRecord {
   batch_id: string | null;
   render_path: string | null;
   render_status: string | null;
+  mannequin_path: string | null;
+  mannequin_status: string | null;
 }
 
 export function ThreeLooksSheet({
@@ -157,16 +160,17 @@ function SheetInner({
     refetchInterval: (query) => {
       const data = query.state.data as OutfitRecord[] | undefined;
       if (!data || data.length === 0) return 4000;
-      const stillPending = data.some(
-        (o) => !o.render_path && o.render_status !== "failed",
+      // Poll while any look has a "see on me" generation in flight.
+      const mannequinPending = data.some(
+        (o) => o.mannequin_status === "rendering",
       );
-      return stillPending ? 4000 : false;
+      return mannequinPending ? 3000 : false;
     },
     queryFn: async () => {
       const { data, error } = await supabase
         .from("outfits")
         .select(
-          "id, item_ids, rationale, occasion, saved, name, look_sequence, batch_id, render_path, render_status",
+          "id, item_ids, rationale, occasion, saved, name, look_sequence, batch_id, render_path, render_status, mannequin_path, mannequin_status",
         )
         .eq("batch_id", batchId)
         .order("look_sequence", { ascending: true });
@@ -177,41 +181,37 @@ function SheetInner({
 
   const outfits = batchQuery.data ?? [];
 
-  // Fire-and-forget AI render for any outfit that hasn't started
-  const requestedRef = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    if (outfits.length === 0) return;
-    const toRender = outfits.filter(
-      (o) =>
-        !o.render_path &&
-        o.render_status !== "rendering" &&
-        o.render_status !== "failed" &&
-        !requestedRef.current.has(o.id),
-    );
-    if (toRender.length === 0) return;
+  // Tracks which outfits have an in-flight "see on me" mannequin generation
+  // initiated from this client. Cleared when the row reports ready/failed.
+  const mannequinInFlightRef = useRef<Set<string>>(new Set());
 
-    (async () => {
-      for (const o of toRender) {
-        if (requestedRef.current.has(o.id)) continue;
-        requestedRef.current.add(o.id);
-        try {
-          qc.setQueryData(
-            ["outfit-batch", batchId],
-            (current: OutfitRecord[] | undefined) =>
-              current?.map((entry) =>
-                entry.id === o.id
-                  ? { ...entry, render_status: "rendering" }
-                  : entry,
-              ) ?? current,
-          );
-          await renderOutfit({ data: { outfit_id: o.id } });
-          qc.invalidateQueries({ queryKey: ["outfit-batch", batchId] });
-        } catch (err) {
-          console.error("[renderOutfit] failed for", o.id, err);
-        }
+  async function handleSeeOnMe(outfitId: string) {
+    if (mannequinInFlightRef.current.has(outfitId)) return;
+    mannequinInFlightRef.current.add(outfitId);
+    // Optimistic UI: flip status so LookHero shows shimmer immediately.
+    qc.setQueryData(
+      ["outfit-batch", batchId],
+      (current: OutfitRecord[] | undefined) =>
+        current?.map((entry) =>
+          entry.id === outfitId
+            ? { ...entry, mannequin_status: "rendering" }
+            : entry,
+        ) ?? current,
+    );
+    try {
+      const result = await generateMannequin({ data: { outfit_id: outfitId } });
+      if ("error" in result) {
+        toast("Couldn't compose figure. Try again.");
+        console.error("[generateMannequin] error", result);
       }
-    })();
-  }, [outfits, qc, batchId]);
+    } catch (err) {
+      console.error("[generateMannequin] threw", err);
+      toast("Couldn't compose figure.");
+    } finally {
+      mannequinInFlightRef.current.delete(outfitId);
+      qc.invalidateQueries({ queryKey: ["outfit-batch", batchId] });
+    }
+  }
 
   const effectiveOccasion: Occasion = useMemo(() => {
     const fromBatch = outfits[0]?.occasion;
@@ -399,6 +399,7 @@ function SheetInner({
                       .filter(Boolean) as ItemFull[]
                   }
                   isActive={activeIndex === i}
+                  mannequinLoading={p.outfit.mannequin_status === "rendering"}
                 />
               ) : (
                 <InvitePanel
@@ -418,6 +419,11 @@ function SheetInner({
         {activeOutfit && (
           <ActionRow
             outfit={activeOutfit}
+            mannequinLoading={
+              activeOutfit.mannequin_status === "rendering" ||
+              mannequinInFlightRef.current.has(activeOutfit.id)
+            }
+            onSeeOnMe={() => handleSeeOnMe(activeOutfit.id)}
             onDetails={() => {
               onClose();
               navigate({
@@ -438,9 +444,13 @@ function SheetInner({
 
 function ActionRow({
   outfit,
+  mannequinLoading,
+  onSeeOnMe,
   onDetails,
 }: {
   outfit: OutfitRecord;
+  mannequinLoading: boolean;
+  onSeeOnMe: () => void;
   onDetails: () => void;
 }) {
   const [saved, setSaved] = useState(outfit.saved ?? false);
@@ -479,8 +489,17 @@ function ActionRow({
     }
   }
 
+  const hasMannequin = !!outfit.mannequin_path;
+
   return (
     <div className="flex h-14 shrink-0 items-stretch border-t border-linen bg-bone">
+      <ActionIcon
+        label={hasMannequin ? "ON ME" : "SEE ON ME"}
+        active={hasMannequin}
+        disabled={mannequinLoading}
+        icon={<User className="h-5 w-5" strokeWidth={1.5} />}
+        onClick={onSeeOnMe}
+      />
       <ActionIcon
         label="SAVE"
         active={saved}
@@ -516,18 +535,21 @@ function ActionIcon({
   label,
   icon,
   active,
+  disabled,
   onClick,
 }: {
   label: string;
   icon: React.ReactNode;
   active?: boolean;
+  disabled?: boolean;
   onClick: () => void;
 }) {
   return (
     <motion.button
       {...tap}
       onClick={onClick}
-      className="flex flex-1 flex-col items-center justify-center gap-1"
+      disabled={disabled}
+      className="flex flex-1 flex-col items-center justify-center gap-1 disabled:opacity-50"
       aria-label={label}
     >
       <span
@@ -553,11 +575,13 @@ function LookPanel({
   index,
   items,
   isActive,
+  mannequinLoading,
 }: {
   outfit: OutfitRecord;
   index: number;
   items: ItemFull[];
   isActive: boolean;
+  mannequinLoading: boolean;
 }) {
   const [revealed, setRevealed] = useState(false);
 
@@ -604,7 +628,13 @@ function LookPanel({
 
       {/* Composition zone — LookHero with callout labels */}
       <div className="relative flex flex-1 items-center justify-center overflow-hidden px-1 py-2">
-        <LookHero outfit={outfit} items={items} revealed={revealed} size="md" />
+        <LookHero
+          outfit={outfit}
+          items={items}
+          revealed={revealed}
+          size="md"
+          mannequinLoading={mannequinLoading}
+        />
       </div>
 
       {/* Rationale */}

@@ -14,6 +14,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { checkAndIncrement, RateLimitError } from "@/server/lib/rate-limit";
 import { chatCompletion, AIGatewayError } from "@/server/lib/ai-gateway";
+import { hexToColorName } from "@/server/lib/color-names";
 
 const OCCASIONS = [
   "office",
@@ -88,11 +89,14 @@ Your three-look output follows a STRATEGIC VARIETY RULE: do not produce three vi
 
 Voice rules for rationale:
 - Under 40 words. Editorial, observational.
+- NEVER include hex codes (e.g. "#1C2436"), item UUIDs, raw JSON values, or field names from the candidate list. Reference items by garment type and human color name only ("the olive cargo pants" — never "#727B5C cargo pants" or "the cotton bottom").
+- Always use the human color names provided in each candidate's "color_name" field. Common names: navy, cream, olive, charcoal, camel, burgundy, forest, rust, stone, oatmeal, taupe, sand, ecru, ivory, indigo, denim, sage, cognac, brick, mustard, plum.
 - Never use: "perfect", "stylish", "chic", "elevated", "timeless", "effortless", "classic" (as adjective — "a classic shirt" is fine, "a classic look" is not), "versatile", "sleek", "trendy", "on-trend", "fashion-forward".
 - Never exclaim. Never emoji. Never second-person address.
 - Good: "The wool trousers anchor the look — appropriate for client days, relaxed enough to walk home in."
 - Good: "Two textures, one palette. The knit does the talking."
 - Bad: "This perfect office outfit is elevated and effortless!"
+- Bad: "#727B5C cotton blend cargo pants sets the pace; #1C2436 button-down adds quiet structure."
 
 Name rules (2–4 words, evocative not descriptive):
 - Good: "The Considered Monday", "Soft Power", "Long Way Home", "Quiet Authority", "Late September", "The Understudy".
@@ -403,7 +407,8 @@ function comboScore(items: CandidateRow[], targetFormality: number) {
 
 function formatItemLabel(item: CandidateRow | undefined) {
   if (!item) return "the anchor piece";
-  return [item.color_primary, item.material, item.subcategory ?? item.category]
+  const colorName = hexToColorName(item.color_primary);
+  return [colorName, item.material, item.subcategory ?? item.category]
     .filter(Boolean)
     .join(" ");
 }
@@ -631,7 +636,8 @@ export const suggestOutfit = createServerFn({ method: "POST" })
       category: c.category,
       subcategory: c.subcategory,
       formality: c.formality_score,
-      color: c.color_primary,
+      // human color name first; raw hex omitted to discourage echoing
+      color_name: hexToColorName(c.color_primary),
       material: c.material,
       season: c.season,
       worn_days_ago: c.last_worn
