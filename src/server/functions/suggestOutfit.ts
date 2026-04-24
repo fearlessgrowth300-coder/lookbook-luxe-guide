@@ -251,6 +251,31 @@ function validateLook(
   return { ok: true };
 }
 
+function normalizeLookProposal(
+  look: LookProposal,
+  candidates: CandidateRow[],
+): LookProposal {
+  const uniqueItemIds = Array.from(new Set(look.item_ids));
+  const resolved = uniqueItemIds
+    .map((id) => candidates.find((candidate) => candidate.id === id))
+    .filter((item): item is CandidateRow => Boolean(item));
+
+  const hasShoes = resolved.some((item) => item.category === "shoes");
+  if (hasShoes) {
+    return { ...look, item_ids: uniqueItemIds };
+  }
+
+  const shoeOptions = candidates.filter((item) => item.category === "shoes");
+  if (shoeOptions.length === 1) {
+    return {
+      ...look,
+      item_ids: [...uniqueItemIds, shoeOptions[0].id],
+    };
+  }
+
+  return { ...look, item_ids: uniqueItemIds };
+ }
+
 function buildCandidateSummary(candidates: CandidateRow[]) {
   return {
     total: candidates.length,
@@ -700,7 +725,9 @@ export const suggestOutfit = createServerFn({ method: "POST" })
       }
 
       payload = parsed;
-      const looks = Array.isArray(parsed.looks) ? parsed.looks.slice(0, 3) : [];
+      const looks = Array.isArray(parsed.looks)
+        ? parsed.looks.slice(0, 3).map((look) => normalizeLookProposal(look, candidatePool))
+        : [];
 
       console.log("[suggestOutfit] LLM response:", JSON.stringify(parsed, null, 2));
 
