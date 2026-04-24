@@ -293,7 +293,10 @@ function TodayPage() {
             {dateLabel}
           </motion.p>
 
-          <h1 className="mt-8 font-display text-[36px] font-light leading-[1.1] text-bone">
+          <h1
+            data-atelier="today-hero-text"
+            className="mt-8 font-display text-[36px] font-light leading-[1.1] text-bone"
+          >
             {promptQuery.isLoading || !promptText ? (
               <span className="inline-block h-[1.1em] w-[80%] atelier-shimmer" />
             ) : (
@@ -317,6 +320,7 @@ function TodayPage() {
 
           {/* Occasion pills (selectable) */}
           <motion.div
+            data-atelier="occasion-pills"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.9, duration: dur.hover }}
@@ -367,16 +371,23 @@ function TodayPage() {
             {selected && (
               <motion.div
                 key="generate"
+                data-atelier="generate-button-wrap"
                 initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 8 }}
                 transition={{ duration: 0.32, ease: ease.luxury, delay: 0.12 }}
-                className="mt-10 flex justify-center"
+                className="mt-10 flex flex-col items-center"
               >
                 <motion.button
                   key={shake}
                   onClick={handleGenerate}
                   disabled={generating}
+                  data-atelier="generate-button"
+                  data-state={
+                    generating ? "loading" : lastError ? "error" : "idle"
+                  }
+                  aria-busy={generating}
+                  aria-live="polite"
                   animate={
                     shake > 0
                       ? { x: [-4, 4, -4, 4, 0] }
@@ -384,15 +395,48 @@ function TodayPage() {
                   }
                   transition={{ duration: 0.4, ease: ease.tactile }}
                   whileTap={{ scale: 0.98 }}
-                  className="relative h-14 w-full max-w-[360px] bg-bone text-graphite transition-colors hover:bg-bone/90 disabled:opacity-70"
+                  className={`relative h-14 w-full max-w-[360px] transition-colors disabled:cursor-wait ${
+                    lastError && !generating
+                      ? "bg-red-100 text-red-900 hover:bg-red-200"
+                      : "bg-bone text-graphite hover:bg-bone/90"
+                  } disabled:opacity-90`}
                   style={{
                     fontFamily: "var(--font-display, Fraunces), serif",
                     fontSize: "17px",
                     letterSpacing: "0.04em",
                   }}
                 >
-                  {generating ? <DriftDots /> : "Generate three looks"}
+                  {generating ? (
+                    <span className="inline-flex items-center gap-3">
+                      <DriftDots />
+                      <span className="font-mono text-[11px] uppercase tracking-[0.18em]">
+                        Composing…
+                      </span>
+                    </span>
+                  ) : lastError ? (
+                    "Try again"
+                  ) : (
+                    "Generate three looks"
+                  )}
                 </motion.button>
+
+                {/* Inline error message — visible without needing to catch the
+                    toast. Cleared on the next attempt. */}
+                <AnimatePresence>
+                  {lastError && !generating && (
+                    <motion.p
+                      key="generate-error"
+                      initial={{ opacity: 0, y: -4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.24, ease: ease.tactile }}
+                      role="alert"
+                      className="mt-3 max-w-[360px] text-center font-mono text-[11px] uppercase tracking-[0.14em] text-red-200"
+                    >
+                      {lastError}
+                    </motion.p>
+                  )}
+                </AnimatePresence>
               </motion.div>
             )}
           </AnimatePresence>
