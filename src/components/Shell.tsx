@@ -24,14 +24,27 @@ export function Shell({ children }: { children: ReactNode }) {
     void warmBgRemoval();
   }, [user]);
 
+  // On the Today route we let the AmbientBackdrop show through. Everywhere
+  // else we keep the bone background painted at the shell level so pages with
+  // light content (Wardrobe, Saved, Settings) read correctly.
+  const isToday = pathname.startsWith("/today");
+
   return (
-    <div className="min-h-screen bg-bone text-graphite">
+    <div className={`min-h-screen text-graphite ${isToday ? "" : "bg-bone"}`}>
       {/* Top bar */}
-      <header className="sticky top-0 z-40 h-16 border-b border-linen bg-bone/95 backdrop-blur">
+      <header
+        className={`sticky top-0 z-40 h-16 border-b backdrop-blur ${
+          isToday
+            ? "border-bone/20 bg-noir/40 text-bone"
+            : "border-linen bg-bone/95"
+        }`}
+      >
         <div className="mx-auto flex h-full max-w-[1280px] items-center justify-between px-6">
           <Link
             to="/today"
-            className="font-display text-[20px] font-normal tracking-tight text-graphite"
+            className={`font-display text-[20px] font-normal tracking-tight ${
+              isToday ? "text-bone" : "text-graphite"
+            }`}
             aria-label="Atelier home"
           >
             Atelier
@@ -64,7 +77,11 @@ export function Shell({ children }: { children: ReactNode }) {
           {/* Avatar */}
           <Link
             to="/settings"
-            className="flex h-8 w-8 items-center justify-center rounded-full border border-ink text-[11px] font-medium text-ink transition-colors hover:border-graphite hover:text-graphite"
+            className={`flex h-8 w-8 items-center justify-center rounded-full border text-[11px] font-medium transition-colors ${
+              isToday
+                ? "border-bone/60 text-bone hover:border-bone hover:text-bone"
+                : "border-ink text-ink hover:border-graphite hover:text-graphite"
+            }`}
             aria-label="Settings"
           >
             {user?.email?.[0].toUpperCase() ?? "A"}
@@ -86,11 +103,17 @@ export function Shell({ children }: { children: ReactNode }) {
 
       {/* Mobile tab bar */}
       <nav
-        className="fixed bottom-0 left-0 right-0 z-40 flex h-16 items-stretch border-t border-linen bg-bone/95 backdrop-blur"
+        className={`fixed bottom-0 left-0 right-0 z-40 flex h-16 items-stretch border-t backdrop-blur ${
+          isToday ? "border-bone/20 bg-noir/40" : "border-linen bg-bone/95"
+        }`}
         aria-label="Primary mobile"
       >
         {NAV.map(({ to, label, icon: Icon }) => {
           const active = pathname.startsWith(to);
+          const activeColor = isToday ? "var(--bone)" : "var(--graphite)";
+          const inactiveColor = isToday
+            ? "color-mix(in oklab, var(--bone) 65%, transparent)"
+            : "var(--ink)";
           return (
             <Link
               key={to}
@@ -101,11 +124,11 @@ export function Shell({ children }: { children: ReactNode }) {
               <Icon
                 className="h-5 w-5 transition-colors"
                 strokeWidth={1.25}
-                color={active ? "var(--graphite)" : "var(--ink)"}
+                color={active ? activeColor : inactiveColor}
               />
               <span
                 className="font-mono text-[10px] uppercase tracking-[0.16em] transition-colors"
-                style={{ color: active ? "var(--graphite)" : "var(--ink)" }}
+                style={{ color: active ? activeColor : inactiveColor }}
               >
                 {label}
               </span>

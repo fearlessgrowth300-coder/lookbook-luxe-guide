@@ -420,9 +420,11 @@ function Tile({
   const enhancedUrl = item?.enhanced_path
     ? supabase.storage.from("wardrobe-enhanced").getPublicUrl(item.enhanced_path).data.publicUrl
     : null;
-  // Prefer thumbnail (≈16KB) over enhanced PNG (≈1MB) for grid rendering.
-  // Enhanced is only used as a fallback when thumb is missing or fails.
-  const initialUrl = pending?.previewUrl ?? thumbUrl ?? enhancedUrl;
+  // Prefer the enhanced (background-removed) PNG so wardrobe tiles always
+  // show the cutout look. Thumbnails are generated from the raw upload and
+  // still contain the original background, so they're only used as a fallback
+  // before enhancement completes.
+  const initialUrl = pending?.previewUrl ?? enhancedUrl ?? thumbUrl;
   const [imgUrl, setImgUrl] = useState<string | null>(initialUrl);
   const [broken, setBroken] = useState(false);
 
@@ -430,7 +432,7 @@ function Tile({
   const longPressFiredRef = useRef(false);
 
   useEffect(() => {
-    setImgUrl(pending?.previewUrl ?? thumbUrl ?? enhancedUrl);
+    setImgUrl(pending?.previewUrl ?? enhancedUrl ?? thumbUrl);
     setBroken(false);
   }, [enhancedUrl, pending?.previewUrl, thumbUrl]);
 
