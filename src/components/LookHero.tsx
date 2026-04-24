@@ -242,8 +242,9 @@ function CalloutLabel({
           {(item.subcategory || item.category || "item").toLowerCase()}
         </p>
         <p className="mt-0.5 font-mono text-[8px] uppercase tracking-[0.18em] text-ink/60 sm:text-[9px]">
-          {[item.material, item.color_primary].filter(Boolean).join(" · ") ||
-            "—"}
+          {[item.material, hexToColorName(item.color_primary)]
+            .filter(Boolean)
+            .join(" · ") || "—"}
         </p>
       </motion.div>
     </div>
