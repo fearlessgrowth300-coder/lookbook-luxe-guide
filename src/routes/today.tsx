@@ -8,6 +8,7 @@ import { Shell } from "@/components/Shell";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { ThreeLooksSheet } from "@/components/ThreeLooksSheet";
 import { AmbientBackdrop } from "@/components/AmbientBackdrop";
+import { TodaySelfCheck } from "@/components/TodaySelfCheck";
 import { useAuth } from "@/lib/auth";
 import { useUI, useThreeLooksSheet, type Mood } from "@/lib/store";
 import { supabase } from "@/integrations/supabase/client";
@@ -65,6 +66,7 @@ function TodayPage() {
   const selected = urlOccasion ?? null;
   const [generating, setGenerating] = useState(false);
   const [shake, setShake] = useState(0);
+  const [lastError, setLastError] = useState<string | null>(null);
 
   // Global sheet state — also opened from Recent Looks cards and deep links.
   const sheetOpen = useThreeLooksSheet((s) => s.isOpen);
@@ -202,6 +204,7 @@ function TodayPage() {
   async function handleGenerate() {
     if (!selected || !user || generating) return;
     setGenerating(true);
+    setLastError(null);
     try {
       const wardrobe = wardrobeQuery.data ?? [];
       if (wardrobe.length < 3) {
@@ -219,16 +222,17 @@ function TodayPage() {
 
       if ("error" in result) {
         console.warn("[suggestOutfit] error result:", result);
+        let errMsg = "Something went wrong. Try again.";
         switch (result.error) {
           case "rate_limited":
-            toast("Daily limit reached. Try again after midnight.");
+            errMsg = "Daily limit reached. Try again after midnight.";
             break;
           case "insufficient_wardrobe":
-            toast("Add at least 5 items to compose looks.");
+            errMsg = "Add at least 5 items to compose looks.";
             break;
           case "insufficient_for_occasion": {
             const what = (result.missing ?? []).join(", ") || "items";
-            toast(`Add ${what} to compose ${selected} looks.`);
+            errMsg = `Add ${what} to compose ${selected} looks.`;
             break;
           }
           case "composition_failed": {
@@ -236,26 +240,23 @@ function TodayPage() {
               ? result.reasons
               : [];
             if (reasons.includes("formality_variance")) {
-              toast(
-                "Your wardrobe has very mixed formality. Try adding a piece closer to 6-7 formality.",
-              );
+              errMsg =
+                "Wardrobe has very mixed formality. Add a piece around 6–7 formality.";
             } else if (reasons.includes("hallucinated_id")) {
-              toast("AI returned invalid items. Try again.");
+              errMsg = "AI returned invalid items. Try again.";
             } else {
-              toast(
-                result.message ?? "Something went wrong. Pull down to refresh and try again.",
-              );
+              errMsg = result.message ?? "Couldn't compose a look. Try again.";
             }
             break;
           }
           case "unexpected":
-            toast(
-              `Compose failed: ${("message" in result && result.message) || "unknown error"}`,
-            );
+            errMsg = `Compose failed: ${
+              ("message" in result && result.message) || "unknown error"
+            }`;
             break;
-          default:
-            toast("Something went wrong. Pull down to refresh and try again.");
         }
+        toast(errMsg);
+        setLastError(errMsg);
         setShake((s) => s + 1);
         return;
       }
@@ -267,7 +268,9 @@ function TodayPage() {
       console.error("[handleGenerate] threw:", e);
       setShake((s) => s + 1);
       const msg = e instanceof Error ? e.message : String(e);
-      toast(`Couldn't compose looks: ${msg.slice(0, 80)}`);
+      const errMsg = `Couldn't compose looks: ${msg.slice(0, 100)}`;
+      toast(errMsg);
+      setLastError(errMsg);
     } finally {
       setGenerating(false);
     }
@@ -279,6 +282,7 @@ function TodayPage() {
   return (
     <Shell>
       <AmbientBackdrop />
+      <TodaySelfCheck />
       {/* Hero */}
       <section className="relative z-10 flex min-h-[calc(100vh-64px)] flex-col items-center justify-center px-6">
         <div className="w-full max-w-[680px]">
@@ -291,7 +295,10 @@ function TodayPage() {
             {dateLabel}
           </motion.p>
 
-          <h1 className="mt-8 font-display text-[36px] font-light leading-[1.1] text-bone">
+          <h1
+            data-atelier="today-hero-text"
+            className="mt-8 font-display text-[36px] font-light leading-[1.1] text-bone"
+          >
             {promptQuery.isLoading || !promptText ? (
               <span className="inline-block h-[1.1em] w-[80%] atelier-shimmer" />
             ) : (
@@ -315,6 +322,7 @@ function TodayPage() {
 
           {/* Occasion pills (selectable) */}
           <motion.div
+            data-atelier="occasion-pills"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.9, duration: dur.hover }}
@@ -365,16 +373,23 @@ function TodayPage() {
             {selected && (
               <motion.div
                 key="generate"
+                data-atelier="generate-button-wrap"
                 initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 8 }}
                 transition={{ duration: 0.32, ease: ease.luxury, delay: 0.12 }}
-                className="mt-10 flex justify-center"
+                className="mt-10 flex flex-col items-center"
               >
                 <motion.button
                   key={shake}
                   onClick={handleGenerate}
                   disabled={generating}
+                  data-atelier="generate-button"
+                  data-state={
+                    generating ? "loading" : lastError ? "error" : "idle"
+                  }
+                  aria-busy={generating}
+                  aria-live="polite"
                   animate={
                     shake > 0
                       ? { x: [-4, 4, -4, 4, 0] }
@@ -382,15 +397,48 @@ function TodayPage() {
                   }
                   transition={{ duration: 0.4, ease: ease.tactile }}
                   whileTap={{ scale: 0.98 }}
-                  className="relative h-14 w-full max-w-[360px] bg-bone text-graphite transition-colors hover:bg-bone/90 disabled:opacity-70"
+                  className={`relative h-14 w-full max-w-[360px] transition-colors disabled:cursor-wait ${
+                    lastError && !generating
+                      ? "bg-red-100 text-red-900 hover:bg-red-200"
+                      : "bg-bone text-graphite hover:bg-bone/90"
+                  } disabled:opacity-90`}
                   style={{
                     fontFamily: "var(--font-display, Fraunces), serif",
                     fontSize: "17px",
                     letterSpacing: "0.04em",
                   }}
                 >
-                  {generating ? <DriftDots /> : "Generate three looks"}
+                  {generating ? (
+                    <span className="inline-flex items-center gap-3">
+                      <DriftDots />
+                      <span className="font-mono text-[11px] uppercase tracking-[0.18em]">
+                        Composing…
+                      </span>
+                    </span>
+                  ) : lastError ? (
+                    "Try again"
+                  ) : (
+                    "Generate three looks"
+                  )}
                 </motion.button>
+
+                {/* Inline error message — visible without needing to catch the
+                    toast. Cleared on the next attempt. */}
+                <AnimatePresence>
+                  {lastError && !generating && (
+                    <motion.p
+                      key="generate-error"
+                      initial={{ opacity: 0, y: -4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.24, ease: ease.tactile }}
+                      role="alert"
+                      className="mt-3 max-w-[360px] text-center font-mono text-[11px] uppercase tracking-[0.14em] text-red-200"
+                    >
+                      {lastError}
+                    </motion.p>
+                  )}
+                </AnimatePresence>
               </motion.div>
             )}
           </AnimatePresence>

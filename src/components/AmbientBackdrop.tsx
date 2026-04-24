@@ -69,6 +69,8 @@ export function AmbientBackdrop() {
   return (
     <div
       aria-hidden
+      data-atelier="ambient-backdrop"
+      data-image-count={available.length}
       className="pointer-events-none fixed inset-0 z-0 overflow-hidden bg-noir"
       style={{ contain: "strict" }}
     >
