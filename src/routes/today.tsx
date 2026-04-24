@@ -464,9 +464,9 @@ function TodayPage() {
 
 function Cell({ icon, label }: { icon: React.ReactNode; label: string }) {
   return (
-    <div className="flex flex-1 items-center justify-center gap-2 border-l border-linen first:border-l-0">
-      <span className="text-ink">{icon}</span>
-      <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-ink">
+    <div className="flex flex-1 items-center justify-center gap-2 border-l border-bone/20 first:border-l-0">
+      <span className="text-bone/80">{icon}</span>
+      <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-bone/80">
         {label}
       </span>
     </div>
