@@ -407,7 +407,8 @@ function comboScore(items: CandidateRow[], targetFormality: number) {
 
 function formatItemLabel(item: CandidateRow | undefined) {
   if (!item) return "the anchor piece";
-  return [item.color_primary, item.material, item.subcategory ?? item.category]
+  const colorName = hexToColorName(item.color_primary);
+  return [colorName, item.material, item.subcategory ?? item.category]
     .filter(Boolean)
     .join(" ");
 }
@@ -635,7 +636,8 @@ export const suggestOutfit = createServerFn({ method: "POST" })
       category: c.category,
       subcategory: c.subcategory,
       formality: c.formality_score,
-      color: c.color_primary,
+      // human color name first; raw hex omitted to discourage echoing
+      color_name: hexToColorName(c.color_primary),
       material: c.material,
       season: c.season,
       worn_days_ago: c.last_worn
