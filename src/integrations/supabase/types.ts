@@ -67,6 +67,9 @@ export type Database = {
           id: string
           item_ids: string[]
           look_sequence: number | null
+          mannequin_error: string | null
+          mannequin_path: string | null
+          mannequin_status: string | null
           name: string | null
           occasion: string | null
           rationale: string | null
@@ -85,6 +88,9 @@ export type Database = {
           id?: string
           item_ids: string[]
           look_sequence?: number | null
+          mannequin_error?: string | null
+          mannequin_path?: string | null
+          mannequin_status?: string | null
           name?: string | null
           occasion?: string | null
           rationale?: string | null
@@ -103,6 +109,9 @@ export type Database = {
           id?: string
           item_ids?: string[]
           look_sequence?: number | null
+          mannequin_error?: string | null
+          mannequin_path?: string | null
+          mannequin_status?: string | null
           name?: string | null
           occasion?: string | null
           rationale?: string | null
