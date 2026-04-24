@@ -69,7 +69,7 @@ export function AmbientBackdrop() {
   return (
     <div
       aria-hidden
-      className="pointer-events-none fixed inset-0 -z-10 overflow-hidden bg-noir"
+      className="pointer-events-none fixed inset-0 z-0 overflow-hidden bg-noir"
       style={{ contain: "strict" }}
     >
       {/* Cycling image layer. When no images exist, the noir bg shows through
