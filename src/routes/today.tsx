@@ -151,20 +151,8 @@ function TodayPage() {
     },
   });
 
-  // Recent outfits
-  const recentQuery = useQuery({
-    queryKey: ["recent-outfits", user?.id],
-    enabled: !!user,
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("outfits")
-        .select("id, occasion, rationale, generated_at, batch_id")
-        .eq("user_id", user!.id)
-        .order("generated_at", { ascending: false })
-        .limit(5);
-      return data ?? [];
-    },
-  });
+  // Recent looks rail removed — Today is single-viewport. Saved tab is
+  // where outfit history lives.
 
   // Wardrobe for occasion gating + generation
   const wardrobeQuery = useQuery({
@@ -449,53 +437,7 @@ function TodayPage() {
         </motion.div>
       </section>
 
-      {/* Recent outfits */}
-      {(recentQuery.data?.length ?? 0) > 0 && (
-        <section className="px-6 py-16">
-          <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-ink">
-            Recent looks
-          </p>
-          <div className="atelier-rail mt-6 flex gap-4 overflow-x-auto pb-4">
-            {recentQuery.data!.map((o) => (
-              <button
-                key={o.id}
-                onClick={() => {
-                  // Prefer the three-look sheet if this outfit belongs to a batch.
-                  // Legacy single outfits without batch_id fall back to the detail page.
-                  if (o.batch_id) {
-                    openSheet(o.batch_id);
-                  } else {
-                    navigate({ to: "/outfit/$id", params: { id: o.id } });
-                  }
-                }}
-                className="group shrink-0 text-left"
-              >
-                <motion.div
-                  whileHover={{ y: -4 }}
-                  transition={{ duration: dur.hover, ease: ease.tactile }}
-                  className="h-[260px] w-[200px] bg-linen p-4"
-                >
-                  <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink">
-                    {o.occasion}
-                  </p>
-                  <p className="mt-3 font-display text-[15px] italic leading-snug text-graphite line-clamp-4">
-                    {o.rationale}
-                  </p>
-                </motion.div>
-                <div className="relative mt-3 inline-block">
-                  <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink">
-                    {new Date(o.generated_at!).toLocaleDateString()}
-                  </span>
-                  <span
-                    className="absolute -bottom-1 left-0 h-px w-full origin-left scale-x-0 bg-champagne transition-transform group-hover:scale-x-100"
-                    style={{ transitionDuration: "320ms", transitionTimingFunction: "cubic-bezier(0.4,0,0.2,1)" }}
-                  />
-                </div>
-              </button>
-            ))}
-          </div>
-        </section>
-      )}
+      {/* Recent looks rail removed — Saved tab houses outfit history. */}
 
       {/* More occasions modal */}
       {moreOpen && (
