@@ -65,6 +65,7 @@ function TodayPage() {
   const selected = urlOccasion ?? null;
   const [generating, setGenerating] = useState(false);
   const [shake, setShake] = useState(0);
+  const [lastError, setLastError] = useState<string | null>(null);
 
   // Global sheet state — also opened from Recent Looks cards and deep links.
   const sheetOpen = useThreeLooksSheet((s) => s.isOpen);
@@ -202,6 +203,7 @@ function TodayPage() {
   async function handleGenerate() {
     if (!selected || !user || generating) return;
     setGenerating(true);
+    setLastError(null);
     try {
       const wardrobe = wardrobeQuery.data ?? [];
       if (wardrobe.length < 3) {
