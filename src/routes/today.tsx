@@ -290,6 +290,7 @@ function TodayPage() {
 
   return (
     <Shell>
+      <AmbientBackdrop />
       {/* Hero */}
       <section className="flex min-h-[calc(100vh-64px)] flex-col items-center justify-center px-6">
         <div className="w-full max-w-[680px]">
