@@ -672,14 +672,14 @@ export const suggestOutfit = createServerFn({ method: "POST" })
       let raw: string;
       try {
         raw = await chatCompletion({
-          model: "openai/gpt-5",
+          model: "google/gemini-3-flash-preview",
           messages: [
             { role: "system", content: SYSTEM_PROMPT },
             { role: "user", content: userPrompt },
           ],
           max_tokens: 2000,
           json: true,
-          timeoutMs: 12_000,
+          timeoutMs: 25_000,
         });
       } catch (err) {
         if (err instanceof AIGatewayError) {
