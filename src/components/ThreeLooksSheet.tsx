@@ -24,7 +24,6 @@ import { useAuth } from "@/lib/auth";
 import { supabase } from "@/integrations/supabase/client";
 import { ease, tap } from "@/lib/motion";
 import { suggestOutfit } from "@/server/functions/suggestOutfit";
-import { renderOutfit } from "@/server/functions/renderOutfit";
 import { generateMannequin } from "@/server/functions/generateMannequin";
 import { type Occasion } from "@/server/mock-ai";
 
@@ -629,7 +628,13 @@ function LookPanel({
 
       {/* Composition zone — LookHero with callout labels */}
       <div className="relative flex flex-1 items-center justify-center overflow-hidden px-1 py-2">
-        <LookHero outfit={outfit} items={items} revealed={revealed} size="md" />
+        <LookHero
+          outfit={outfit}
+          items={items}
+          revealed={revealed}
+          size="md"
+          mannequinLoading={mannequinLoading}
+        />
       </div>
 
       {/* Rationale */}

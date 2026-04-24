@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { Shell } from "@/components/Shell";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { ThreeLooksSheet } from "@/components/ThreeLooksSheet";
+import { AmbientBackdrop } from "@/components/AmbientBackdrop";
 import { useAuth } from "@/lib/auth";
 import { useUI, useThreeLooksSheet, type Mood } from "@/lib/store";
 import { supabase } from "@/integrations/supabase/client";
