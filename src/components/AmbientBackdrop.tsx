@@ -12,19 +12,7 @@
 
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-
-const MOOD_IMAGES = [
-  "/mood/mood-01.jpg",
-  "/mood/mood-02.jpg",
-  "/mood/mood-03.jpg",
-  "/mood/mood-04.jpg",
-  "/mood/mood-05.jpg",
-  "/mood/mood-06.jpg",
-  "/mood/mood-07.jpg",
-  "/mood/mood-08.jpg",
-  "/mood/mood-09.jpg",
-  "/mood/mood-10.jpg",
-];
+import { MOOD_IMAGES } from "@/lib/mood-images";
 
 const CYCLE_MS = 7000;
 const FADE_MS = 1400;
