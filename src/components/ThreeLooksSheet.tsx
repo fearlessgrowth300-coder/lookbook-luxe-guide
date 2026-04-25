@@ -129,9 +129,14 @@ function SheetInner({
       if (e.key === "Escape") onCloseRef.current();
     }
     // Push a sentinel history entry so the back gesture closes the sheet
-    // rather than navigating away from /today.
+    // rather than navigating away from /today. Track it so cleanup can tell
+    // whether the user already popped it (Back button) vs closed via UI.
+    let sentinelLive = true;
     window.history.pushState({ sheet: "three-looks" }, "");
     function onPop() {
+      // Only react when leaving OUR sentinel — ignore unrelated popstates
+      // (e.g. nested navigations, browser quirks, Strict Mode replays).
+      sentinelLive = false;
       onCloseRef.current();
     }
     window.addEventListener("keydown", onKey);
@@ -139,10 +144,9 @@ function SheetInner({
     return () => {
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("popstate", onPop);
-      // If our sentinel is still on top of the stack (i.e. the user closed the
-      // sheet via UI rather than the back button), pop it so we don't leak
-      // history entries.
-      if (window.history.state?.sheet === "three-looks") {
+      // If the sentinel is still on top of the stack (closed via UI, not Back),
+      // pop it so we don't leak history entries or cause a stuck Back button.
+      if (sentinelLive && window.history.state?.sheet === "three-looks") {
         window.history.back();
       }
     };
