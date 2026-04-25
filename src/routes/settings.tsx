@@ -451,7 +451,94 @@ function PreviewTile({
   );
 }
 
-/* ────────────────── Render diagnostics panel ────────────────── */
+/* ────────────────── Integrations: third-party API keys (read-only status) ────────────────── */
+
+function IntegrationsSection() {
+  const status = useQuery({
+    queryKey: ["integration-status"],
+    queryFn: () => getIntegrationStatus(),
+  });
+
+  const apify = status.data?.apify;
+
+  return (
+    <section className="mt-12">
+      <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-ink">
+        Integrations
+      </p>
+      <p className="mt-2 text-[13px] text-graphite/80">
+        Optional API keys used by the stylist for richer style references. Keys are
+        stored as encrypted backend secrets — never in the database — and are never
+        sent to your browser.
+      </p>
+
+      <div className="mt-5 rounded border border-linen bg-linen/20 p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <p className="text-[13px] text-graphite">Apify (Pinterest inspiration)</p>
+            <p className="mt-1 text-[11px] text-ink/70">
+              Powers live scraping of Pinterest pins to inform color palettes and
+              silhouettes when generating looks.
+            </p>
+            <div className="mt-3 flex items-center gap-2">
+              {status.isLoading ? (
+                <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink/60">
+                  Checking…
+                </span>
+              ) : apify?.configured ? (
+                <>
+                  <CheckCircle2
+                    className="h-3.5 w-3.5 text-graphite"
+                    strokeWidth={1.5}
+                  />
+                  <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-graphite">
+                    Configured
+                  </span>
+                  {apify.hint && (
+                    <span className="font-mono text-[10px] tracking-[0.14em] text-ink/60">
+                      {apify.hint}
+                    </span>
+                  )}
+                </>
+              ) : (
+                <>
+                  <AlertCircle
+                    className="h-3.5 w-3.5 text-signal"
+                    strokeWidth={1.5}
+                  />
+                  <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-signal">
+                    Not configured
+                  </span>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <p className="mt-4 text-[11px] text-ink/70">
+          To {apify?.configured ? "rotate" : "add"} this key, ask in chat:{" "}
+          <span className="font-mono text-[10px] text-graphite">
+            "{apify?.configured ? "rotate" : "set"} my Apify API key"
+          </span>
+          . You'll get a secure prompt to paste the value — it goes straight to the
+          backend and is never visible in code or the database.
+        </p>
+        <p className="mt-2 text-[11px] text-ink/60">
+          Get a key at{" "}
+          <a
+            href="https://console.apify.com/account/integrations"
+            target="_blank"
+            rel="noreferrer"
+            className="underline hover:text-graphite"
+          >
+            console.apify.com → Integrations
+          </a>
+          .
+        </p>
+      </div>
+    </section>
+  );
+}
 
 function DiagnosticsPanel() {
   const { user } = useAuth();
