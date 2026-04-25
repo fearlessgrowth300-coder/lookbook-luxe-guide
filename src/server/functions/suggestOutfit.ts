@@ -15,6 +15,11 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { checkAndIncrement, RateLimitError } from "@/server/lib/rate-limit";
 import { chatCompletion, AIGatewayError } from "@/server/lib/ai-gateway";
 import { hexToColorName } from "@/server/lib/color-names";
+import {
+  getInspiration,
+  inspirationPromptFragment,
+  type InspirationStatus,
+} from "@/server/lib/inspiration";
 
 const OCCASIONS = [
   "office",
@@ -164,6 +169,7 @@ function buildUserPrompt(args: {
   relaxed?: boolean;
   customOccasion?: string;
   note?: string;
+  inspirationFragment?: string;
 }) {
   const excludeClause = args.excludeBatchId
     ? `\n- The user already saw a prior set; compose genuinely different looks this time.`
@@ -211,7 +217,7 @@ Think through the composition before outputting. Return strict JSON in this exac
   ]
 }
 
-No markdown. No prose outside the JSON. The "reasoning" field is for your internal thinking and will not be shown to the user, but you must produce it — it forces you to plan before picking.${feedbackClause}${relaxedClause}`;
+No markdown. No prose outside the JSON. The "reasoning" field is for your internal thinking and will not be shown to the user, but you must produce it — it forces you to plan before picking.${feedbackClause}${relaxedClause}${args.inspirationFragment ?? ""}`;
 }
 
 function validateLook(
@@ -701,6 +707,21 @@ export const suggestOutfit = createServerFn({ method: "POST" })
 
     const candidateIds = new Set(candidatePool.map((c) => c.id));
 
+    // 5b. Pinterest inspiration (best-effort, ~24h cached). Never throws —
+    //     a failure simply means the stylist runs without external hints.
+    const inspirationStatus: InspirationStatus = await getInspiration({
+      occasion: data.occasion,
+      mood: data.mood ?? null,
+      archetype,
+    });
+    const inspirationFragment = inspirationPromptFragment(inspirationStatus);
+    console.log("[suggestOutfit] inspiration:", inspirationStatus.state, {
+      pin_count:
+        inspirationStatus.state === "cached" || inspirationStatus.state === "fresh"
+          ? inspirationStatus.data.pin_count
+          : 0,
+    });
+
     // 6. Call AI once with a tight timeout; if it stalls or returns bad output,
     //    fall back to a deterministic local composition so the user still gets looks.
     let payload: AIPayload | null = null;
@@ -722,6 +743,7 @@ export const suggestOutfit = createServerFn({ method: "POST" })
         relaxed,
         customOccasion: data.custom_occasion,
         note: data.note,
+        inspirationFragment,
       });
 
       let raw: string;
@@ -911,6 +933,16 @@ export const suggestOutfit = createServerFn({ method: "POST" })
         custom_occasion: data.custom_occasion ?? null,
         user_note: data.note ?? null,
         low_variety: validLooks.length < 3,
+        inspiration: {
+          state: inspirationStatus.state,
+          ...(inspirationStatus.state === "cached" || inspirationStatus.state === "fresh"
+            ? {
+                pin_count: inspirationStatus.data.pin_count,
+                palette: inspirationStatus.data.palette,
+                aesthetic_tags: inspirationStatus.data.aesthetic_tags,
+              }
+            : { reason: inspirationStatus.reason }),
+        },
       },
       batch_id,
       look_sequence: idx + 1,
@@ -929,6 +961,7 @@ export const suggestOutfit = createServerFn({ method: "POST" })
       requested_count: 3,
       returned_count: validLooks.length,
       note: validLooks.length < 3 ? "low_variety" : null,
+      inspiration: inspirationStatus,
     };
     } catch (err) {
       // Last-resort safety net: never let an uncaught error reach the client

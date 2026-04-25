@@ -158,6 +158,48 @@ export type Database = {
         }
         Relationships: []
       }
+      style_inspiration_cache: {
+        Row: {
+          aesthetic_tags: Json
+          archetype: string | null
+          cache_key: string
+          created_at: string
+          expires_at: string
+          garments: Json
+          mood: string | null
+          occasion: string
+          palette: Json
+          pin_count: number
+          source: string
+        }
+        Insert: {
+          aesthetic_tags?: Json
+          archetype?: string | null
+          cache_key: string
+          created_at?: string
+          expires_at?: string
+          garments?: Json
+          mood?: string | null
+          occasion: string
+          palette?: Json
+          pin_count?: number
+          source?: string
+        }
+        Update: {
+          aesthetic_tags?: Json
+          archetype?: string | null
+          cache_key?: string
+          created_at?: string
+          expires_at?: string
+          garments?: Json
+          mood?: string | null
+          occasion?: string
+          palette?: Json
+          pin_count?: number
+          source?: string
+        }
+        Relationships: []
+      }
       styling_logs: {
         Row: {
           archetype: string | null

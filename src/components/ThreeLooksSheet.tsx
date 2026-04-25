@@ -60,6 +60,7 @@ interface OutfitRecord {
   render_status: string | null;
   mannequin_path: string | null;
   mannequin_status: string | null;
+  context: Record<string, unknown> | null;
 }
 
 export function ThreeLooksSheet({
@@ -189,7 +190,7 @@ function SheetInner({
       const { data, error } = await supabase
         .from("outfits")
         .select(
-          "id, item_ids, rationale, occasion, saved, name, look_sequence, batch_id, render_path, render_status, mannequin_path, mannequin_status",
+          "id, item_ids, rationale, occasion, saved, name, look_sequence, batch_id, render_path, render_status, mannequin_path, mannequin_status, context",
         )
         .eq("batch_id", batchId)
         .order("look_sequence", { ascending: true });
@@ -307,6 +308,44 @@ function SheetInner({
       ? (panels[activeIndex] as { kind: "look"; outfit: OutfitRecord }).outfit
       : null;
 
+  // Inspiration status (from server function), persisted on the outfit's
+  // `context.inspiration` field. Best-effort enrichment — absence is fine.
+  const inspiration = useMemo(() => {
+    const ctx = outfits[0]?.context as
+      | { inspiration?: Record<string, unknown> }
+      | null
+      | undefined;
+    const insp = ctx?.inspiration;
+    if (!insp || typeof insp !== "object") return null;
+    const state = (insp as { state?: unknown }).state;
+    if (state === "fresh" || state === "cached") {
+      const pinCount = Number((insp as { pin_count?: unknown }).pin_count ?? 0);
+      const palette = Array.isArray((insp as { palette?: unknown }).palette)
+        ? ((insp as { palette: string[] }).palette ?? [])
+        : [];
+      return {
+        kind: state as "fresh" | "cached",
+        label:
+          state === "fresh"
+            ? `Inspired by ${pinCount} fresh references`
+            : `Inspired by ${pinCount} cached references`,
+        palette: palette.slice(0, 3),
+      };
+    }
+    if (state === "failed" || state === "skipped") {
+      const reason = String((insp as { reason?: unknown }).reason ?? "unknown");
+      return {
+        kind: "failed" as const,
+        label:
+          state === "skipped"
+            ? "Pinterest inspiration disabled"
+            : `Pinterest inspiration unavailable (${reason.slice(0, 40)})`,
+        palette: [],
+      };
+    }
+    return null;
+  }, [outfits]);
+
   return (
     <div className="fixed inset-0 z-50">
       {/* Dim overlay */}
@@ -387,6 +426,34 @@ function SheetInner({
             </div>
           </div>
         </header>
+
+        {/* Inspiration status — slim bar showing whether Pinterest cues
+            were folded into the prompt. Best-effort enrichment, never required. */}
+        {inspiration && (
+          <div
+            className="flex shrink-0 items-center justify-center gap-2 border-b border-linen bg-bone px-4 py-1.5"
+            title={inspiration.label}
+          >
+            <span
+              aria-hidden
+              className="inline-block h-1.5 w-1.5 rounded-full"
+              style={{
+                backgroundColor:
+                  inspiration.kind === "failed"
+                    ? "color-mix(in oklab, var(--ink) 35%, transparent)"
+                    : "var(--graphite)",
+              }}
+            />
+            <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink/70">
+              {inspiration.label}
+            </p>
+            {inspiration.palette.length > 0 && (
+              <span className="font-mono text-[10px] tracking-[0.12em] text-ink/50">
+                · {inspiration.palette.join(" / ")}
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Body */}
         {loading ? (
