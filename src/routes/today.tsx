@@ -82,7 +82,7 @@ function TodayPage() {
     }
   }, [urlBatch, openSheet]);
 
-  function closeSheet() {
+  const closeSheet = useCallback(() => {
     closeSheetStore();
     if (urlBatch) {
       navigate({
@@ -91,7 +91,7 @@ function TodayPage() {
         replace: true,
       });
     }
-  }
+  }, [closeSheetStore, urlBatch, urlOccasion, navigate]);
 
   const today = useMemo(() => new Date(), []);
   const dateLabel = useMemo(
