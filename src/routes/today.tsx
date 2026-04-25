@@ -242,6 +242,7 @@ function TodayPage() {
   function setSelected(occ: Occasion | null) {
     navigate({
       to: "/today",
+      // Picking a preset clears any free-text occasion.
       search: { occasion: occ ?? undefined },
       replace: true,
     });
@@ -249,6 +250,28 @@ function TodayPage() {
 
   function togglePill(id: Occasion) {
     setSelected(selected === id ? null : id);
+  }
+
+  function applyCustomOccasion(input: { custom: string; note: string }) {
+    const text = `${input.custom} ${input.note}`.trim();
+    const mapped = mapTextToOccasion(text || input.custom);
+    navigate({
+      to: "/today",
+      search: {
+        occasion: mapped,
+        custom: input.custom.trim().slice(0, 80) || undefined,
+        note: input.note.trim().slice(0, 400) || undefined,
+      },
+      replace: true,
+    });
+  }
+
+  function clearCustomOccasion() {
+    navigate({
+      to: "/today",
+      search: { occasion: undefined },
+      replace: true,
+    });
   }
 
   async function handleGenerate() {
@@ -267,6 +290,8 @@ function TodayPage() {
           occasion: selected,
           temp_c: 14,
           mood,
+          custom_occasion: urlCustom,
+          note: urlNote,
         },
       });
 
