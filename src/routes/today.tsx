@@ -100,10 +100,17 @@ const ALL_OCCASIONS: { id: Occasion; label: string }[] = [
 function TodayPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const { occasion: urlOccasion, batch: urlBatch } = Route.useSearch();
+  const {
+    occasion: urlOccasion,
+    batch: urlBatch,
+    custom: urlCustom,
+    note: urlNote,
+  } = Route.useSearch();
   const { mood, setMood } = useUI();
   const [moreOpen, setMoreOpen] = useState(false);
+  const [customOpen, setCustomOpen] = useState(false);
   const selected = urlOccasion ?? null;
+  const hasCustom = !!urlCustom;
   const [generating, setGenerating] = useState(false);
   const [shake, setShake] = useState(0);
   const [lastError, setLastError] = useState<string | null>(null);
@@ -130,11 +137,11 @@ function TodayPage() {
     if (urlBatch && window.location.pathname === "/today") {
       navigate({
         to: "/today",
-        search: { occasion: urlOccasion },
+        search: { occasion: urlOccasion, custom: urlCustom, note: urlNote },
         replace: true,
       });
     }
-  }, [closeSheetStore, urlBatch, urlOccasion, navigate]);
+  }, [closeSheetStore, urlBatch, urlOccasion, urlCustom, urlNote, navigate]);
 
   const today = useMemo(() => new Date(), []);
   const dateLabel = useMemo(
