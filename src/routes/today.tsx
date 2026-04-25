@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Cloud, Calendar } from "lucide-react";
 import { toast } from "sonner";
 import { Shell } from "@/components/Shell";
@@ -82,7 +82,7 @@ function TodayPage() {
     }
   }, [urlBatch, openSheet]);
 
-  function closeSheet() {
+  const closeSheet = useCallback(() => {
     closeSheetStore();
     if (urlBatch) {
       navigate({
@@ -91,7 +91,7 @@ function TodayPage() {
         replace: true,
       });
     }
-  }
+  }, [closeSheetStore, urlBatch, urlOccasion, navigate]);
 
   const today = useMemo(() => new Date(), []);
   const dateLabel = useMemo(
