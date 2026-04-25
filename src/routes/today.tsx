@@ -28,19 +28,59 @@ export const Route = createFileRoute("/today")({
   ),
   validateSearch: (
     search: Record<string, unknown>,
-  ): { occasion?: Occasion; batch?: string } => {
+  ): { occasion?: Occasion; batch?: string; custom?: string; note?: string } => {
     const occ = search.occasion;
     const batch = search.batch;
+    const custom = search.custom;
+    const note = search.note;
     return {
       occasion:
         typeof occ === "string" && (ALL_OCC_IDS as readonly string[]).includes(occ)
           ? (occ as Occasion)
           : undefined,
       batch: typeof batch === "string" && batch.length > 0 ? batch : undefined,
+      custom:
+        typeof custom === "string" && custom.length > 0
+          ? custom.slice(0, 80)
+          : undefined,
+      note:
+        typeof note === "string" && note.length > 0 ? note.slice(0, 400) : undefined,
     };
   },
   head: () => ({ meta: [{ title: "Today — Atelier" }] }),
 });
+
+/**
+ * Heuristic mapping of free-text occasion/notes to one of the six presets.
+ * Used to pick a formality band when the user types their own occasion.
+ * The full free-text is still sent to the AI so the look reflects the
+ * specifics — this is just a coarse filter for which wardrobe items qualify.
+ */
+function mapTextToOccasion(text: string): Occasion {
+  const t = text.toLowerCase();
+  // Formal: weddings (as guest), galas, black-tie, funerals, ceremonies.
+  if (/\b(wedding|gala|black[- ]?tie|funeral|ceremony|cocktail|opera)\b/.test(t)) {
+    return "formal";
+  }
+  // Athletic: gym, run, hike, sport, yoga.
+  if (/\b(gym|run(ning)?|hike|hiking|workout|yoga|sport|pilates|tennis|climb)\b/.test(t)) {
+    return "athletic";
+  }
+  // Travel: flight, airport, train, road trip.
+  if (/\b(flight|airport|plane|train|road ?trip|travel(ling|ing)?|transit)\b/.test(t)) {
+    return "travel";
+  }
+  // Evening: dinner, date, drinks, party, night out, bar, concert.
+  if (/\b(dinner|date|drinks?|party|night out|bar|club|concert|theatre|theater|launch|opening)\b/.test(t)) {
+    return "evening";
+  }
+  // Office: interview, meeting, client, presentation, work, office, board, conference.
+  if (/\b(interview|meeting|client|presentation|work|office|board|conference|pitch|standup|stand[- ]up)\b/.test(t)) {
+    return "office";
+  }
+  // Default: casual.
+  return "casual";
+}
 
 const PRIMARY_OCCASIONS: { id: Occasion; label: string }[] = [
   { id: "office", label: "Office" },
