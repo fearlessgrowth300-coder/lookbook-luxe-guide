@@ -7,6 +7,10 @@ import { toast } from "sonner";
 import { Shell } from "@/components/Shell";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { ThreeLooksSheet } from "@/components/ThreeLooksSheet";
+import {
+  CustomOccasionModal,
+  type CustomOccasionInput,
+} from "@/components/CustomOccasionModal";
 import { AmbientBackdrop } from "@/components/AmbientBackdrop";
 import { TodaySelfCheck } from "@/components/TodaySelfCheck";
 import { useAuth } from "@/lib/auth";
@@ -625,7 +629,7 @@ function TodayPage() {
           initialCustom={urlCustom ?? ""}
           initialNote={urlNote ?? ""}
           onClose={() => setCustomOpen(false)}
-          onApply={(input) => {
+          onApply={(input: CustomOccasionInput) => {
             setCustomOpen(false);
             applyCustomOccasion(input);
           }}
