@@ -933,6 +933,16 @@ export const suggestOutfit = createServerFn({ method: "POST" })
         custom_occasion: data.custom_occasion ?? null,
         user_note: data.note ?? null,
         low_variety: validLooks.length < 3,
+        inspiration: {
+          state: inspirationStatus.state,
+          ...(inspirationStatus.state === "cached" || inspirationStatus.state === "fresh"
+            ? {
+                pin_count: inspirationStatus.data.pin_count,
+                palette: inspirationStatus.data.palette,
+                aesthetic_tags: inspirationStatus.data.aesthetic_tags,
+              }
+            : { reason: inspirationStatus.reason }),
+        },
       },
       batch_id,
       look_sequence: idx + 1,
