@@ -405,19 +405,33 @@ function WardrobePage() {
                     pending={{ previewUrl: pendingUpload.previewUrl, label: PENDING_STAGE_LABELS[pendingUpload.stage] }}
                   />
                 )}
-                {visibleItems.map((item, i) => (
-                  <Tile
-                    key={item.id}
-                    item={item}
-                    index={pendingUpload ? i + 1 : i}
-                    selected={selectedItemIds.has(item.id)}
-                    onToggleSelect={() => toggleSelect(item.id)}
-                    onTap={() => {
-                      if (selectedItemIds.size > 0) toggleSelect(item.id);
-                      else setEditItemId(item.id);
-                    }}
-                  />
-                ))}
+                {visibleItems.map((entry, i) => {
+                  const idx = pendingUpload ? i + 1 : i;
+                  if (entry.kind === "set") {
+                    return (
+                      <SetTile
+                        key={`set-${entry.set.id}`}
+                        set={entry.set}
+                        pieces={entry.pieces}
+                        index={idx}
+                      />
+                    );
+                  }
+                  const item = entry.item;
+                  return (
+                    <Tile
+                      key={item.id}
+                      item={item}
+                      index={idx}
+                      selected={selectedItemIds.has(item.id)}
+                      onToggleSelect={() => toggleSelect(item.id)}
+                      onTap={() => {
+                        if (selectedItemIds.size > 0) toggleSelect(item.id);
+                        else setEditItemId(item.id);
+                      }}
+                    />
+                  );
+                })}
               </Grid>
             </motion.div>
           </AnimatePresence>
