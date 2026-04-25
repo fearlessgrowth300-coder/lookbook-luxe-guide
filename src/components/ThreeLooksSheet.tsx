@@ -60,6 +60,7 @@ interface OutfitRecord {
   render_status: string | null;
   mannequin_path: string | null;
   mannequin_status: string | null;
+  context: Record<string, unknown> | null;
 }
 
 export function ThreeLooksSheet({
