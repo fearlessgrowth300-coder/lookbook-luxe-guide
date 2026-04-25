@@ -114,24 +114,39 @@ function SheetInner({
     };
   }, []);
 
-  // Hardware back / Escape key dismiss
+  // Hardware back / Escape key dismiss.
+  // Use a ref for onClose so this effect runs ONCE on mount — otherwise an
+  // unstable parent callback would tear down the listener (and crucially, fire
+  // its cleanup which pops the history state we just pushed) on every render,
+  // closing the sheet immediately after it opens.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") onCloseRef.current();
     }
-    window.addEventListener("keydown", onKey);
-    // Push a history state so the back gesture closes the sheet rather than
-    // navigating away.
+    // Push a sentinel history entry so the back gesture closes the sheet
+    // rather than navigating away from /today.
     window.history.pushState({ sheet: "three-looks" }, "");
     function onPop() {
-      onClose();
+      onCloseRef.current();
     }
+    window.addEventListener("keydown", onKey);
     window.addEventListener("popstate", onPop);
     return () => {
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("popstate", onPop);
+      // If our sentinel is still on top of the stack (i.e. the user closed the
+      // sheet via UI rather than the back button), pop it so we don't leak
+      // history entries.
+      if (window.history.state?.sheet === "three-looks") {
+        window.history.back();
+      }
     };
-  }, [onClose]);
+  }, []);
 
   const wardrobeQuery = useQuery({
     queryKey: ["wardrobe-full", user?.id],
