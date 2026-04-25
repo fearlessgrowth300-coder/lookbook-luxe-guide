@@ -427,6 +427,34 @@ function SheetInner({
           </div>
         </header>
 
+        {/* Inspiration status — slim bar showing whether Pinterest cues
+            were folded into the prompt. Best-effort enrichment, never required. */}
+        {inspiration && (
+          <div
+            className="flex shrink-0 items-center justify-center gap-2 border-b border-linen bg-bone px-4 py-1.5"
+            title={inspiration.label}
+          >
+            <span
+              aria-hidden
+              className="inline-block h-1.5 w-1.5 rounded-full"
+              style={{
+                backgroundColor:
+                  inspiration.kind === "failed"
+                    ? "color-mix(in oklab, var(--ink) 35%, transparent)"
+                    : "var(--graphite)",
+              }}
+            />
+            <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink/70">
+              {inspiration.label}
+            </p>
+            {inspiration.palette.length > 0 && (
+              <span className="font-mono text-[10px] tracking-[0.12em] text-ink/50">
+                · {inspiration.palette.join(" / ")}
+              </span>
+            )}
+          </div>
+        )}
+
         {/* Body */}
         {loading ? (
           <div className="flex flex-1 items-center justify-center">
