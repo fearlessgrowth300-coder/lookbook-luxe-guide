@@ -84,7 +84,10 @@ function TodayPage() {
 
   const closeSheet = useCallback(() => {
     closeSheetStore();
-    if (urlBatch) {
+    // Only strip the ?batch= param if we're still on /today. If the user is
+    // navigating away (e.g. clicking Details to /outfit/$id), the route is
+    // already changing and a competing replace-navigate can hijack it.
+    if (urlBatch && window.location.pathname === "/today") {
       navigate({
         to: "/today",
         search: { occasion: urlOccasion },
