@@ -83,6 +83,18 @@ interface WardrobeItem {
   subcategory: string | null;
   color_primary: string | null;
   formality_score: number | null;
+  set_id: string | null;
+  set_role: string | null;
+}
+
+interface GarmentSet {
+  id: string;
+  name: string | null;
+  set_type: string | null;
+  formality_score: number | null;
+  occasion_tags: string[] | null;
+  separable_pieces: string[] | null;
+  cultural_context: string | null;
 }
 
 type PendingUploadStage = "decoding" | "preparing" | "uploading" | "enhancing";
