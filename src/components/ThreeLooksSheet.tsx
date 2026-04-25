@@ -308,6 +308,44 @@ function SheetInner({
       ? (panels[activeIndex] as { kind: "look"; outfit: OutfitRecord }).outfit
       : null;
 
+  // Inspiration status (from server function), persisted on the outfit's
+  // `context.inspiration` field. Best-effort enrichment — absence is fine.
+  const inspiration = useMemo(() => {
+    const ctx = outfits[0]?.context as
+      | { inspiration?: Record<string, unknown> }
+      | null
+      | undefined;
+    const insp = ctx?.inspiration;
+    if (!insp || typeof insp !== "object") return null;
+    const state = (insp as { state?: unknown }).state;
+    if (state === "fresh" || state === "cached") {
+      const pinCount = Number((insp as { pin_count?: unknown }).pin_count ?? 0);
+      const palette = Array.isArray((insp as { palette?: unknown }).palette)
+        ? ((insp as { palette: string[] }).palette ?? [])
+        : [];
+      return {
+        kind: state as "fresh" | "cached",
+        label:
+          state === "fresh"
+            ? `Inspired by ${pinCount} fresh references`
+            : `Inspired by ${pinCount} cached references`,
+        palette: palette.slice(0, 3),
+      };
+    }
+    if (state === "failed" || state === "skipped") {
+      const reason = String((insp as { reason?: unknown }).reason ?? "unknown");
+      return {
+        kind: "failed" as const,
+        label:
+          state === "skipped"
+            ? "Pinterest inspiration disabled"
+            : `Pinterest inspiration unavailable (${reason.slice(0, 40)})`,
+        palette: [],
+      };
+    }
+    return null;
+  }, [outfits]);
+
   return (
     <div className="fixed inset-0 z-50">
       {/* Dim overlay */}
