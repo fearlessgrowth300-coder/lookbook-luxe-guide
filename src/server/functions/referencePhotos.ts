@@ -32,11 +32,26 @@ export const listReferencePhotos = createServerFn({ method: "GET" })
       .select("reference_photo_path")
       .eq("id", userId)
       .maybeSingle();
-    const activePath = profile?.reference_photo_path ?? null;
+    let activePath = profile?.reference_photo_path ?? null;
 
     const { data: files } = await supabaseAdmin.storage
       .from(REF_BUCKET)
       .list(userId, { limit: 50, sortBy: { column: "created_at", order: "desc" } });
+
+    // Auto-heal: if the user has uploaded photos but no active reference is
+    // recorded (or the recorded one no longer exists), promote the most
+    // recent shot. Without this, renders silently skip identity guidance.
+    const fileNames = new Set((files ?? []).map((f) => `${userId}/${f.name}`));
+    if ((!activePath || !fileNames.has(activePath)) && files && files.length > 0) {
+      const promoted = `${userId}/${files[0].name}`;
+      const { error: promoteErr } = await supabaseAdmin
+        .from("profiles")
+        .update({ reference_photo_path: promoted })
+        .eq("id", userId);
+      if (!promoteErr) {
+        activePath = promoted;
+      }
+    }
 
     const candidates: CandidatePhoto[] = [];
     for (const f of files ?? []) {
