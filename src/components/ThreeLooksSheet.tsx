@@ -190,7 +190,7 @@ function SheetInner({
       const { data, error } = await supabase
         .from("outfits")
         .select(
-          "id, item_ids, rationale, occasion, saved, name, look_sequence, batch_id, render_path, render_status, mannequin_path, mannequin_status",
+          "id, item_ids, rationale, occasion, saved, name, look_sequence, batch_id, render_path, render_status, mannequin_path, mannequin_status, context",
         )
         .eq("batch_id", batchId)
         .order("look_sequence", { ascending: true });
