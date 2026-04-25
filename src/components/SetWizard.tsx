@@ -217,7 +217,7 @@ export function SetWizard({ onClose }: { onClose: () => void }) {
     void warmBgRemoval();
   }, []);
 
-  // When user picks the type, seed pieces array with empty slots
+  // When user picks the type, seed pieces array with empty slots and advance
   useEffect(() => {
     if (!setType) return;
     if (setType === "kaftan" && step === "type") {
@@ -239,6 +239,11 @@ export function SetWizard({ onClose }: { onClose: () => void }) {
     );
     setName(defaultNameFor(setType));
     setFormality(defaultFormality(setType));
+    // Auto-advance from the type-picker to the meta step once a non-kaftan
+    // type is chosen. Kaftan goes through the 1pc/2pc form first (handled above).
+    if (step === "type" && setType !== "kaftan") {
+      setStep("meta");
+    }
   }, [setType, kaftanIs2pc, step]);
 
   // Cleanup object URLs when wizard closes
