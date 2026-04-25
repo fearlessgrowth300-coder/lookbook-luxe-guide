@@ -117,6 +117,8 @@ export const renderOutfit = createServerFn({ method: "POST" })
     }
 
     // 4. Try to load the user's reference photo (private bucket → signed URL).
+    //    Auto-heal: if the profile has no reference_photo_path but the user
+    //    has uploaded shots, promote the most recent one before signing.
     let referenceUrl: string | null = null;
     try {
       const { data: profile } = await supabaseAdmin
@@ -124,7 +126,25 @@ export const renderOutfit = createServerFn({ method: "POST" })
         .select("reference_photo_path")
         .eq("id", userId)
         .maybeSingle();
-      const refPath = profile?.reference_photo_path;
+      let refPath = profile?.reference_photo_path ?? null;
+
+      if (!refPath) {
+        const { data: files } = await supabaseAdmin.storage
+          .from(REFERENCE_BUCKET)
+          .list(userId, {
+            limit: 1,
+            sortBy: { column: "created_at", order: "desc" },
+          });
+        if (files && files.length > 0) {
+          refPath = `${userId}/${files[0].name}`;
+          await supabaseAdmin
+            .from("profiles")
+            .update({ reference_photo_path: refPath })
+            .eq("id", userId);
+          console.log("[renderOutfit] auto-promoted reference photo", refPath);
+        }
+      }
+
       if (refPath) {
         const { data: signed } = await supabaseAdmin.storage
           .from(REFERENCE_BUCKET)

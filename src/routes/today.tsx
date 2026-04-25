@@ -28,19 +28,59 @@ export const Route = createFileRoute("/today")({
   ),
   validateSearch: (
     search: Record<string, unknown>,
-  ): { occasion?: Occasion; batch?: string } => {
+  ): { occasion?: Occasion; batch?: string; custom?: string; note?: string } => {
     const occ = search.occasion;
     const batch = search.batch;
+    const custom = search.custom;
+    const note = search.note;
     return {
       occasion:
         typeof occ === "string" && (ALL_OCC_IDS as readonly string[]).includes(occ)
           ? (occ as Occasion)
           : undefined,
       batch: typeof batch === "string" && batch.length > 0 ? batch : undefined,
+      custom:
+        typeof custom === "string" && custom.length > 0
+          ? custom.slice(0, 80)
+          : undefined,
+      note:
+        typeof note === "string" && note.length > 0 ? note.slice(0, 400) : undefined,
     };
   },
   head: () => ({ meta: [{ title: "Today — Atelier" }] }),
 });
+
+/**
+ * Heuristic mapping of free-text occasion/notes to one of the six presets.
+ * Used to pick a formality band when the user types their own occasion.
+ * The full free-text is still sent to the AI so the look reflects the
+ * specifics — this is just a coarse filter for which wardrobe items qualify.
+ */
+function mapTextToOccasion(text: string): Occasion {
+  const t = text.toLowerCase();
+  // Formal: weddings (as guest), galas, black-tie, funerals, ceremonies.
+  if (/\b(wedding|gala|black[- ]?tie|funeral|ceremony|cocktail|opera)\b/.test(t)) {
+    return "formal";
+  }
+  // Athletic: gym, run, hike, sport, yoga.
+  if (/\b(gym|run(ning)?|hike|hiking|workout|yoga|sport|pilates|tennis|climb)\b/.test(t)) {
+    return "athletic";
+  }
+  // Travel: flight, airport, train, road trip.
+  if (/\b(flight|airport|plane|train|road ?trip|travel(ling|ing)?|transit)\b/.test(t)) {
+    return "travel";
+  }
+  // Evening: dinner, date, drinks, party, night out, bar, concert.
+  if (/\b(dinner|date|drinks?|party|night out|bar|club|concert|theatre|theater|launch|opening)\b/.test(t)) {
+    return "evening";
+  }
+  // Office: interview, meeting, client, presentation, work, office, board, conference.
+  if (/\b(interview|meeting|client|presentation|work|office|board|conference|pitch|standup|stand[- ]up)\b/.test(t)) {
+    return "office";
+  }
+  // Default: casual.
+  return "casual";
+}
 
 const PRIMARY_OCCASIONS: { id: Occasion; label: string }[] = [
   { id: "office", label: "Office" },
@@ -60,10 +100,17 @@ const ALL_OCCASIONS: { id: Occasion; label: string }[] = [
 function TodayPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const { occasion: urlOccasion, batch: urlBatch } = Route.useSearch();
+  const {
+    occasion: urlOccasion,
+    batch: urlBatch,
+    custom: urlCustom,
+    note: urlNote,
+  } = Route.useSearch();
   const { mood, setMood } = useUI();
   const [moreOpen, setMoreOpen] = useState(false);
+  const [customOpen, setCustomOpen] = useState(false);
   const selected = urlOccasion ?? null;
+  const hasCustom = !!urlCustom;
   const [generating, setGenerating] = useState(false);
   const [shake, setShake] = useState(0);
   const [lastError, setLastError] = useState<string | null>(null);
@@ -84,14 +131,17 @@ function TodayPage() {
 
   const closeSheet = useCallback(() => {
     closeSheetStore();
-    if (urlBatch) {
+    // Only strip the ?batch= param if we're still on /today. If the user is
+    // navigating away (e.g. clicking Details to /outfit/$id), the route is
+    // already changing and a competing replace-navigate can hijack it.
+    if (urlBatch && window.location.pathname === "/today") {
       navigate({
         to: "/today",
-        search: { occasion: urlOccasion },
+        search: { occasion: urlOccasion, custom: urlCustom, note: urlNote },
         replace: true,
       });
     }
-  }, [closeSheetStore, urlBatch, urlOccasion, navigate]);
+  }, [closeSheetStore, urlBatch, urlOccasion, urlCustom, urlNote, navigate]);
 
   const today = useMemo(() => new Date(), []);
   const dateLabel = useMemo(
@@ -192,6 +242,7 @@ function TodayPage() {
   function setSelected(occ: Occasion | null) {
     navigate({
       to: "/today",
+      // Picking a preset clears any free-text occasion.
       search: { occasion: occ ?? undefined },
       replace: true,
     });
@@ -199,6 +250,28 @@ function TodayPage() {
 
   function togglePill(id: Occasion) {
     setSelected(selected === id ? null : id);
+  }
+
+  function applyCustomOccasion(input: { custom: string; note: string }) {
+    const text = `${input.custom} ${input.note}`.trim();
+    const mapped = mapTextToOccasion(text || input.custom);
+    navigate({
+      to: "/today",
+      search: {
+        occasion: mapped,
+        custom: input.custom.trim().slice(0, 80) || undefined,
+        note: input.note.trim().slice(0, 400) || undefined,
+      },
+      replace: true,
+    });
+  }
+
+  function clearCustomOccasion() {
+    navigate({
+      to: "/today",
+      search: { occasion: undefined },
+      replace: true,
+    });
   }
 
   async function handleGenerate() {
@@ -217,6 +290,8 @@ function TodayPage() {
           occasion: selected,
           temp_c: 14,
           mood,
+          custom_occasion: urlCustom,
+          note: urlNote,
         },
       });
 
@@ -366,7 +441,52 @@ function TodayPage() {
             >
               More occasions →
             </button>
+            <button
+              onClick={() => setCustomOpen(true)}
+              className="font-mono text-[11px] uppercase tracking-[0.16em] text-bone/70 transition-colors hover:text-bone"
+            >
+              + Custom
+            </button>
           </motion.div>
+
+          {/* Active custom occasion chip — clearable */}
+          {hasCustom && (
+            <motion.div
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.32, ease: ease.luxury }}
+              className="mt-4 flex items-start gap-3 rounded border border-bone/40 bg-bone/5 px-4 py-3"
+            >
+              <div className="flex-1">
+                <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-bone/60">
+                  For {selected}
+                </p>
+                <p className="mt-1 font-display text-[15px] text-bone">
+                  {urlCustom}
+                </p>
+                {urlNote && (
+                  <p className="mt-1 text-[12px] leading-relaxed text-bone/70">
+                    {urlNote}
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={() => {
+                  setCustomOpen(true);
+                }}
+                className="font-mono text-[10px] uppercase tracking-[0.16em] text-bone/70 hover:text-bone"
+              >
+                Edit
+              </button>
+              <button
+                onClick={clearCustomOccasion}
+                aria-label="Clear custom occasion"
+                className="font-mono text-[10px] uppercase tracking-[0.16em] text-bone/50 hover:text-bone"
+              >
+                ×
+              </button>
+            </motion.div>
+          )}
 
           {/* Generate button — appears only when an occasion is selected */}
           <AnimatePresence>
@@ -499,6 +619,19 @@ function TodayPage() {
         />
       )}
 
+      {/* Custom occasion modal */}
+      {customOpen && (
+        <CustomOccasionModal
+          initialCustom={urlCustom ?? ""}
+          initialNote={urlNote ?? ""}
+          onClose={() => setCustomOpen(false)}
+          onApply={(input) => {
+            setCustomOpen(false);
+            applyCustomOccasion(input);
+          }}
+        />
+      )}
+
       {/* Three Looks bottom sheet */}
       <ThreeLooksSheet
         open={sheetOpen}
@@ -587,6 +720,106 @@ function MoreOccasionsModal({
               </motion.button>
             );
           })}
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function CustomOccasionModal({
+  initialCustom,
+  initialNote,
+  onClose,
+  onApply,
+}: {
+  initialCustom: string;
+  initialNote: string;
+  onClose: () => void;
+  onApply: (input: { custom: string; note: string }) => void;
+}) {
+  const [custom, setCustom] = useState(initialCustom);
+  const [note, setNote] = useState(initialNote);
+  const canApply = custom.trim().length > 0;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: dur.hover, ease: ease.tactile }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-graphite/40 px-6"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: dur.page, ease: ease.luxury }}
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-[480px] bg-bone p-10"
+        style={{ boxShadow: "0 20px 60px -20px rgba(0,0,0,0.25)", borderRadius: "2px" }}
+      >
+        <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-ink">
+          Custom occasion
+        </p>
+        <p className="mt-2 text-[13px] leading-relaxed text-graphite/80">
+          Tell the stylist where you're going and any context that matters.
+        </p>
+
+        <div className="mt-6 space-y-4">
+          <div>
+            <label
+              htmlFor="custom-occ"
+              className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink"
+            >
+              Occasion
+            </label>
+            <input
+              id="custom-occ"
+              autoFocus
+              type="text"
+              value={custom}
+              maxLength={80}
+              onChange={(e) => setCustom(e.target.value)}
+              placeholder="e.g. Job interview at a startup"
+              className="mt-2 h-11 w-full border border-ink bg-transparent px-3 text-[14px] text-graphite placeholder:text-ink/40 focus:border-graphite focus:outline-none"
+            />
+          </div>
+          <div>
+            <label
+              htmlFor="custom-note"
+              className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink"
+            >
+              Notes <span className="text-ink/50">(optional)</span>
+            </label>
+            <textarea
+              id="custom-note"
+              value={note}
+              maxLength={400}
+              rows={3}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="Dress code, vibe, who you're meeting, weather, anything to know…"
+              className="mt-2 w-full resize-none border border-ink bg-transparent p-3 text-[13px] leading-relaxed text-graphite placeholder:text-ink/40 focus:border-graphite focus:outline-none"
+            />
+            <p className="mt-1 text-right font-mono text-[10px] text-ink/50">
+              {note.length}/400
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-8 flex justify-end gap-3">
+          <button
+            onClick={onClose}
+            className="h-11 px-5 font-mono text-[11px] uppercase tracking-[0.16em] text-ink hover:text-graphite"
+          >
+            Cancel
+          </button>
+          <motion.button
+            {...tap}
+            onClick={() => canApply && onApply({ custom, note })}
+            disabled={!canApply}
+            className="h-11 bg-graphite px-6 text-[13px] text-bone disabled:opacity-40"
+          >
+            Apply
+          </motion.button>
         </div>
       </motion.div>
     </motion.div>

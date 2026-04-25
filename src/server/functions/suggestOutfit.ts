@@ -34,6 +34,10 @@ interface SuggestInput {
   temp_c: number;
   mood?: Mood;
   exclude_batch_id?: string;
+  /** Optional free-text occasion name (e.g. "job interview at startup"). */
+  custom_occasion?: string;
+  /** Optional user-provided context describing the occasion in their words. */
+  note?: string;
 }
 
 const FORMALITY_RANGE: Record<Occasion, [number, number]> = {
@@ -158,6 +162,8 @@ function buildUserPrompt(args: {
   candidateList: unknown[];
   feedback?: string;
   relaxed?: boolean;
+  customOccasion?: string;
+  note?: string;
 }) {
   const excludeClause = args.excludeBatchId
     ? `\n- The user already saw a prior set; compose genuinely different looks this time.`
@@ -169,11 +175,18 @@ function buildUserPrompt(args: {
     ? `\n\nThis wardrobe is small. You may relax:\n- Formality variance can extend to 4 (not 3).\n- If no outerwear is available and temp is 10-15°C, skip outerwear rather than fail.\nTry again and return valid looks even if not ideal.`
     : "";
 
+  const occasionLine = args.customOccasion
+    ? `${args.customOccasion} (mapped to closest formality band: ${args.occasion})`
+    : args.occasion;
+  const noteClause = args.note
+    ? `\n- User's notes about the occasion: "${args.note}"\n  Read these carefully and let them shape the looks. They override generic occasion assumptions.`
+    : "";
+
   return `Compose THREE looks for:
-- Occasion: ${args.occasion}
+- Occasion: ${occasionLine}
 - Temperature: ${args.temp_c}°C
 - Mood preference: ${args.mood ?? "not specified"}
-- User's style archetype: ${args.archetype}${excludeClause}
+- User's style archetype: ${args.archetype}${noteClause}${excludeClause}
 
 Eligible wardrobe:
 ${JSON.stringify(args.candidateList, null, 2)}
@@ -198,7 +211,7 @@ Think through the composition before outputting. Return strict JSON in this exac
   ]
 }
 
-No markdown. No prose outside the JSON. The "reasoning" field is for your internal thinking and will not be shown to the user, but you must produce it — it forces you to plan before picking.${feedbackClause}`;
+No markdown. No prose outside the JSON. The "reasoning" field is for your internal thinking and will not be shown to the user, but you must produce it — it forces you to plan before picking.${feedbackClause}${relaxedClause}`;
 }
 
 function validateLook(
@@ -564,6 +577,21 @@ export const suggestOutfit = createServerFn({ method: "POST" })
     if (input.mood !== undefined && !MOODS.includes(input.mood)) {
       throw new Error("invalid_mood");
     }
+    // Free-text fields: cap length to keep prompt budget bounded.
+    if (input.custom_occasion !== undefined) {
+      if (typeof input.custom_occasion !== "string") {
+        throw new Error("invalid_custom_occasion");
+      }
+      if (input.custom_occasion.length > 80) {
+        input.custom_occasion = input.custom_occasion.slice(0, 80);
+      }
+    }
+    if (input.note !== undefined) {
+      if (typeof input.note !== "string") throw new Error("invalid_note");
+      if (input.note.length > 400) {
+        input.note = input.note.slice(0, 400);
+      }
+    }
     return input;
   })
   .handler(async ({ data, context }) => {
@@ -692,6 +720,8 @@ export const suggestOutfit = createServerFn({ method: "POST" })
         candidateList,
         feedback: attempt === 1 ? lastReasons.join(", ") : undefined,
         relaxed,
+        customOccasion: data.custom_occasion,
+        note: data.note,
       });
 
       let raw: string;
@@ -878,7 +908,9 @@ export const suggestOutfit = createServerFn({ method: "POST" })
         mood: data.mood ?? null,
         strategy: look.strategy ?? null,
         archetype,
-        note: validLooks.length < 3 ? "low_variety" : null,
+        custom_occasion: data.custom_occasion ?? null,
+        user_note: data.note ?? null,
+        low_variety: validLooks.length < 3,
       },
       batch_id,
       look_sequence: idx + 1,

@@ -104,7 +104,9 @@ export const generateMannequin = createServerFn({ method: "POST" })
       return { error: "no_item_images" as const };
     }
 
-    // 4. Optional reference photo for identity match
+    // 4. Optional reference photo for identity match. Auto-heal: if no
+    //    reference is recorded but the user uploaded shots, promote the
+    //    most recent one before signing.
     let referenceUrl: string | null = null;
     try {
       const { data: profile } = await supabaseAdmin
@@ -112,10 +114,29 @@ export const generateMannequin = createServerFn({ method: "POST" })
         .select("reference_photo_path")
         .eq("id", userId)
         .maybeSingle();
-      if (profile?.reference_photo_path) {
+      let refPath = profile?.reference_photo_path ?? null;
+
+      if (!refPath) {
+        const { data: files } = await supabaseAdmin.storage
+          .from(REFERENCE_BUCKET)
+          .list(userId, {
+            limit: 1,
+            sortBy: { column: "created_at", order: "desc" },
+          });
+        if (files && files.length > 0) {
+          refPath = `${userId}/${files[0].name}`;
+          await supabaseAdmin
+            .from("profiles")
+            .update({ reference_photo_path: refPath })
+            .eq("id", userId);
+          console.log("[generateMannequin] auto-promoted reference photo", refPath);
+        }
+      }
+
+      if (refPath) {
         const { data: signed } = await supabaseAdmin.storage
           .from(REFERENCE_BUCKET)
-          .createSignedUrl(profile.reference_photo_path, 60 * 10);
+          .createSignedUrl(refPath, 60 * 10);
         if (signed?.signedUrl) referenceUrl = signed.signedUrl;
       }
     } catch (err) {
