@@ -707,6 +707,21 @@ export const suggestOutfit = createServerFn({ method: "POST" })
 
     const candidateIds = new Set(candidatePool.map((c) => c.id));
 
+    // 5b. Pinterest inspiration (best-effort, ~24h cached). Never throws —
+    //     a failure simply means the stylist runs without external hints.
+    const inspirationStatus: InspirationStatus = await getInspiration({
+      occasion: data.occasion,
+      mood: data.mood ?? null,
+      archetype,
+    });
+    const inspirationFragment = inspirationPromptFragment(inspirationStatus);
+    console.log("[suggestOutfit] inspiration:", inspirationStatus.state, {
+      pin_count:
+        inspirationStatus.state === "cached" || inspirationStatus.state === "fresh"
+          ? inspirationStatus.data.pin_count
+          : 0,
+    });
+
     // 6. Call AI once with a tight timeout; if it stalls or returns bad output,
     //    fall back to a deterministic local composition so the user still gets looks.
     let payload: AIPayload | null = null;
@@ -728,6 +743,7 @@ export const suggestOutfit = createServerFn({ method: "POST" })
         relaxed,
         customOccasion: data.custom_occasion,
         note: data.note,
+        inspirationFragment,
       });
 
       let raw: string;
