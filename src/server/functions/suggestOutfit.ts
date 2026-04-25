@@ -720,6 +720,8 @@ export const suggestOutfit = createServerFn({ method: "POST" })
         candidateList,
         feedback: attempt === 1 ? lastReasons.join(", ") : undefined,
         relaxed,
+        customOccasion: data.custom_occasion,
+        note: data.note,
       });
 
       let raw: string;
