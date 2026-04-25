@@ -116,10 +116,13 @@ function WardrobePage() {
   const { user } = useAuth();
   const qc = useQueryClient();
   const { uploadOpen, setUploadOpen, selectedItemIds, toggleSelect, clearSelection } = useUI();
-  const [filter, setFilter] = useState<Category | "all">("all");
+  const [filter, setFilter] = useState<Category | "all" | "sets">("all");
   const [pendingUpload, setPendingUpload] = useState<PendingUploadItem | null>(null);
   const [editItemId, setEditItemId] = useState<string | null>(null);
   const [bannerDismissed, setBannerDismissed] = useState(false);
+  // When uploadOpen is true we first show an entry-choice sheet asking the
+  // user whether they're adding a single piece or a coordinated set.
+  const [entryChoice, setEntryChoice] = useState<"single" | "set" | null>(null);
 
   const itemsQuery = useQuery({
     queryKey: ["wardrobe", user?.id],
@@ -128,13 +131,30 @@ function WardrobePage() {
       const { data, error } = await supabase
         .from("wardrobe_items")
         .select(
-          "id, raw_path, enhanced_path, thumbnail_path, placeholder, category, subcategory, color_primary, formality_score",
+          "id, raw_path, enhanced_path, thumbnail_path, placeholder, category, subcategory, color_primary, formality_score, set_id, set_role",
         )
         .eq("user_id", user!.id)
         .eq("archived", false)
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return (data ?? []) as WardrobeItem[];
+      return (data ?? []) as unknown as WardrobeItem[];
+    },
+  });
+
+  const setsQuery = useQuery({
+    queryKey: ["garment-sets", user?.id],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("garment_sets" as any)
+        .select(
+          "id, name, set_type, formality_score, occasion_tags, separable_pieces, cultural_context",
+        )
+        .eq("user_id", user!.id)
+        .eq("archived", false)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as unknown as GarmentSet[];
     },
   });
 
@@ -162,12 +182,80 @@ function WardrobePage() {
   }, [user, qc]);
 
   const items = itemsQuery.data ?? [];
-  const filtered = useMemo(
-    () => (filter === "all" ? items : items.filter((i) => i.category === filter)),
-    [items, filter],
+  const sets = setsQuery.data ?? [];
+
+  // Group items by set membership, distinguishing locked vs separable pieces.
+  // A locked piece does NOT show under category filters (Tops, Bottoms…) —
+  // it lives only inside its parent set tile.
+  const setsById = useMemo(() => {
+    const m = new Map<string, GarmentSet>();
+    sets.forEach((s) => m.set(s.id, s));
+    return m;
+  }, [sets]);
+
+  const setMembers = useMemo(() => {
+    const m = new Map<string, WardrobeItem[]>();
+    items.forEach((it) => {
+      if (!it.set_id) return;
+      const list = m.get(it.set_id) ?? [];
+      list.push(it);
+      m.set(it.set_id, list);
+    });
+    return m;
+  }, [items]);
+
+  const isPieceSeparable = (item: WardrobeItem): boolean => {
+    if (!item.set_id) return true;
+    const parent = setsById.get(item.set_id);
+    if (!parent) return true;
+    if (!item.set_role) return false;
+    return (parent.separable_pieces ?? []).includes(item.set_role);
+  };
+
+  /** Standalone items + items from sets that are marked separable. */
+  const standaloneEligible = useMemo(
+    () => items.filter((i) => !i.set_id || isPieceSeparable(i)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [items, setsById],
   );
+
+  // Build the filtered display list. For "all" we show standalone items + one
+  // compound tile per set. For "sets" we show only set tiles. For category
+  // chips we show items eligible at standalone level only.
+  type DisplayEntry =
+    | { kind: "item"; item: WardrobeItem }
+    | { kind: "set"; set: GarmentSet; pieces: WardrobeItem[] };
+
+  const filtered: DisplayEntry[] = useMemo(() => {
+    if (filter === "sets") {
+      return sets.map((s) => ({
+        kind: "set" as const,
+        set: s,
+        pieces: setMembers.get(s.id) ?? [],
+      }));
+    }
+    if (filter === "all") {
+      const standalonePart: DisplayEntry[] = items
+        .filter((i) => !i.set_id)
+        .map((item) => ({ kind: "item" as const, item }));
+      const setPart: DisplayEntry[] = sets.map((s) => ({
+        kind: "set" as const,
+        set: s,
+        pieces: setMembers.get(s.id) ?? [],
+      }));
+      return [...setPart, ...standalonePart];
+    }
+    // Category filters: only show separable / standalone pieces
+    return standaloneEligible
+      .filter((i) => i.category === filter)
+      .map((item) => ({ kind: "item" as const, item }));
+  }, [filter, items, sets, setMembers, standaloneEligible]);
+
   const visibleItems = useMemo(
-    () => (pendingUpload ? filtered.filter((item) => item.id !== pendingUpload.id) : filtered),
+    () =>
+      pendingUpload
+        ? filtered.filter((entry) => !(entry.kind === "item" && entry.item.id === pendingUpload.id))
+        : filtered,
     [filtered, pendingUpload],
   );
 
