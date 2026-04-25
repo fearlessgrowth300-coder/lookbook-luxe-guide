@@ -961,6 +961,7 @@ export const suggestOutfit = createServerFn({ method: "POST" })
       requested_count: 3,
       returned_count: validLooks.length,
       note: validLooks.length < 3 ? "low_variety" : null,
+      inspiration: inspirationStatus,
     };
     } catch (err) {
       // Last-resort safety net: never let an uncaught error reach the client
