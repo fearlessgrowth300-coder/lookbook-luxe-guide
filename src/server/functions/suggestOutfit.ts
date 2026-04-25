@@ -169,6 +169,7 @@ function buildUserPrompt(args: {
   relaxed?: boolean;
   customOccasion?: string;
   note?: string;
+  inspirationFragment?: string;
 }) {
   const excludeClause = args.excludeBatchId
     ? `\n- The user already saw a prior set; compose genuinely different looks this time.`
