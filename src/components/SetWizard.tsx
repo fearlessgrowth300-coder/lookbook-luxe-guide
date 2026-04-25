@@ -402,7 +402,7 @@ export function SetWizard({ onClose }: { onClose: () => void }) {
         throw new Error(setErr?.message ?? "Failed to create set");
       }
 
-      const setId = (setRow as { id: string }).id;
+      const setId = (setRow as unknown as { id: string }).id;
 
       // 2. Upload + insert each piece in parallel (cap concurrency at 3)
       const queue = [...ready];
