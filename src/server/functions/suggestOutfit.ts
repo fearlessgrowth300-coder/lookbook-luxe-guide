@@ -34,6 +34,10 @@ interface SuggestInput {
   temp_c: number;
   mood?: Mood;
   exclude_batch_id?: string;
+  /** Optional free-text occasion name (e.g. "job interview at startup"). */
+  custom_occasion?: string;
+  /** Optional user-provided context describing the occasion in their words. */
+  note?: string;
 }
 
 const FORMALITY_RANGE: Record<Occasion, [number, number]> = {
