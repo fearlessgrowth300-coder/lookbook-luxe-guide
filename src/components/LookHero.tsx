@@ -126,8 +126,8 @@ export function LookHero({
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                transition={{ duration: 0.42, ease: ease.luxury }}
-                className="absolute inset-0 m-auto h-auto w-full max-w-full object-contain"
+              transition={{ duration: 0.42, ease: ease.luxury }}
+                className="absolute inset-0 h-full w-full object-contain"
                 style={{
                   filter: "drop-shadow(0 18px 36px rgba(0,0,0,0.18))",
                 }}
@@ -262,9 +262,11 @@ function FlatLay({
   revealed: boolean;
   size: "md" | "lg";
 }) {
-  const itemH = size === "lg" ? "h-[210px]" : "h-[152px]";
+  // Use flex-basis so items share available height instead of overflowing.
+  // Cap per-item height so small wardrobes don't stretch absurdly tall.
+  const itemMaxH = size === "lg" ? "max-h-[220px]" : "max-h-[160px]";
   return (
-    <div className="flex h-full w-full flex-col items-center justify-center">
+    <div className="flex h-full max-h-full w-full flex-col items-center justify-center overflow-hidden py-4">
       {items.map((item, i) => {
         const url = item.enhanced_path
           ? supabase.storage
@@ -285,7 +287,7 @@ function FlatLay({
               ease: ease.luxury,
               delay: i * 0.1,
             }}
-            className={`flex ${itemH} -mt-3 items-center justify-center first:mt-0`}
+            className={`flex min-h-0 w-full flex-1 ${itemMaxH} -mt-2 items-center justify-center first:mt-0`}
           >
             {url ? (
               <img
@@ -293,7 +295,7 @@ function FlatLay({
                 alt={item.subcategory ?? ""}
                 loading="lazy"
                 decoding="async"
-                className="max-h-full max-w-full object-contain"
+                className="h-full max-h-full w-auto max-w-full object-contain"
                 style={{ filter: "drop-shadow(0 4px 8px rgba(0,0,0,0.06))" }}
               />
             ) : (
