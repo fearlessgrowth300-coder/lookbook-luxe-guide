@@ -217,7 +217,7 @@ Think through the composition before outputting. Return strict JSON in this exac
   ]
 }
 
-No markdown. No prose outside the JSON. The "reasoning" field is for your internal thinking and will not be shown to the user, but you must produce it — it forces you to plan before picking.${feedbackClause}${relaxedClause}`;
+No markdown. No prose outside the JSON. The "reasoning" field is for your internal thinking and will not be shown to the user, but you must produce it — it forces you to plan before picking.${feedbackClause}${relaxedClause}${args.inspirationFragment ?? ""}`;
 }
 
 function validateLook(
