@@ -1568,3 +1568,180 @@ function EditSheet({
     </motion.div>
   );
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EntryChoiceSheet — asked first when user taps "+". Routes them to the
+// single-piece UploadSheet or the multi-piece SetWizard.
+// ─────────────────────────────────────────────────────────────────────────────
+function EntryChoiceSheet({
+  onPickSingle,
+  onPickSet,
+  onClose,
+}: {
+  onPickSingle: () => void;
+  onPickSet: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: dur.hover }}
+      className="fixed inset-0 z-50 flex items-end justify-center bg-graphite/40"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ y: "100%" }}
+        animate={{ y: 0 }}
+        exit={{ y: "100%" }}
+        transition={{ duration: dur.page, ease: ease.luxury }}
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-[640px] bg-bone px-6 py-8"
+        style={{ borderRadius: "4px 4px 0 0" }}
+      >
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-ink">
+              Add to wardrobe
+            </p>
+            <h2 className="mt-2 font-display text-[28px] font-light text-graphite">
+              Is this part of a set?
+            </h2>
+          </div>
+          <button onClick={onClose} className="text-ink hover:text-graphite" aria-label="Close">
+            <X className="h-5 w-5" strokeWidth={1.25} />
+          </button>
+        </div>
+
+        <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <motion.button
+            {...tap}
+            onClick={onPickSingle}
+            className="flex flex-col items-start gap-3 border border-ink/30 bg-linen/30 p-6 text-left transition-colors hover:border-graphite hover:bg-linen/60"
+          >
+            <Shirt className="h-7 w-7 text-graphite" strokeWidth={1.25} />
+            <div>
+              <p className="font-display text-[18px] font-light text-graphite">Single piece</p>
+              <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.16em] text-ink">
+                One garment at a time
+              </p>
+            </div>
+          </motion.button>
+
+          <motion.button
+            {...tap}
+            onClick={onPickSet}
+            className="flex flex-col items-start gap-3 border border-ink/30 bg-linen/30 p-6 text-left transition-colors hover:border-graphite hover:bg-linen/60"
+          >
+            <Layers className="h-7 w-7 text-graphite" strokeWidth={1.25} />
+            <div>
+              <p className="font-display text-[18px] font-light text-graphite">Part of a set</p>
+              <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.16em] text-ink">
+                Suit · agbada · tracksuit
+              </p>
+            </div>
+          </motion.button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SetTile — single hero piece (largest piece chosen by role priority) with a
+// "SET · N" badge corner. Tapping opens a quick detail view (placeholder for
+// now — full set edit sheet ships in a follow-up).
+// ─────────────────────────────────────────────────────────────────────────────
+const ROLE_PRIORITY: Record<string, number> = {
+  agbada_robe: 100,
+  jacket: 90,
+  outerwear: 90,
+  kaftan_top: 80,
+  tracksuit_top: 70,
+  buba_top: 60,
+  top: 50,
+  shirt: 50,
+  waistcoat: 40,
+  trouser: 30,
+  bottom: 30,
+  sokoto_trouser: 30,
+  kaftan_bottom: 30,
+  tracksuit_bottom: 30,
+  overlay: 20,
+};
+
+function SetTile({
+  set,
+  pieces,
+  index,
+}: {
+  set: GarmentSet;
+  pieces: WardrobeItem[];
+  index: number;
+}) {
+  const stagger = Math.min(index, 17) * 0.035;
+
+  // Pick the hero piece — highest role priority, falling back to first piece
+  const hero = useMemo(() => {
+    if (pieces.length === 0) return null;
+    return [...pieces].sort(
+      (a, b) =>
+        (ROLE_PRIORITY[b.set_role ?? ""] ?? 0) - (ROLE_PRIORITY[a.set_role ?? ""] ?? 0),
+    )[0];
+  }, [pieces]);
+
+  const heroUrl = hero?.enhanced_path
+    ? supabase.storage.from("wardrobe-enhanced").getPublicUrl(hero.enhanced_path).data.publicUrl
+    : hero?.thumbnail_path
+      ? supabase.storage.from("wardrobe-thumbs").getPublicUrl(hero.thumbnail_path).data.publicUrl
+      : null;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: stagger, duration: dur.page, ease: ease.luxury }}
+      whileHover={{ scale: 1.02 }}
+      className="group relative aspect-[3/4] cursor-pointer bg-linen p-3"
+    >
+      {heroUrl ? (
+        <img
+          src={heroUrl}
+          alt={set.name ?? "Set"}
+          loading="lazy"
+          className="h-full w-full object-contain"
+        />
+      ) : (
+        <div className="flex h-full w-full items-center justify-center text-ink/40">
+          <Layers className="h-8 w-8" strokeWidth={1.25} />
+        </div>
+      )}
+
+      {/* Set badge */}
+      <div className="absolute left-3 top-3 flex items-center gap-1.5 border border-graphite bg-bone/95 px-2 py-1">
+        <Layers className="h-3 w-3 text-graphite" strokeWidth={1.5} />
+        <span className="font-mono text-[9px] uppercase tracking-[0.2em] text-graphite">
+          SET · {pieces.length}
+        </span>
+      </div>
+
+      {/* Meta bar */}
+      <div
+        className="absolute inset-x-0 bottom-0 translate-y-full bg-bone/95 px-3 py-2 transition-transform group-hover:translate-y-0"
+        style={{ transitionDuration: "220ms", transitionTimingFunction: "cubic-bezier(0.4,0,0.2,1)" }}
+      >
+        <div className="flex items-center justify-between">
+          <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-graphite truncate">
+            {set.name ?? set.set_type ?? "Set"}
+          </span>
+          {set.formality_score && (
+            <span className="font-mono text-[9px] uppercase tracking-[0.16em] text-ink">
+              F{set.formality_score}
+            </span>
+          )}
+        </div>
+      </div>
+    </motion.div>
+  );
+}
