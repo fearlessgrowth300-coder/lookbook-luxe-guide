@@ -444,7 +444,11 @@ function SheetInner({
             }
             onSeeOnMe={() => handleSeeOnMe(activeOutfit.id)}
             onDetails={() => {
-              onClose();
+              // Navigate FIRST. Closing the sheet via onClose triggers a
+              // ?batch= cleanup navigate to /today which races with this one
+              // and sometimes wins (replace:true), bouncing the user back.
+              // Just close the store state — the route change unmounts the
+              // sheet naturally.
               navigate({
                 to: "/outfit/$id",
                 params: { id: activeOutfit.id },
