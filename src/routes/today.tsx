@@ -441,7 +441,52 @@ function TodayPage() {
             >
               More occasions →
             </button>
+            <button
+              onClick={() => setCustomOpen(true)}
+              className="font-mono text-[11px] uppercase tracking-[0.16em] text-bone/70 transition-colors hover:text-bone"
+            >
+              + Custom
+            </button>
           </motion.div>
+
+          {/* Active custom occasion chip — clearable */}
+          {hasCustom && (
+            <motion.div
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.32, ease: ease.luxury }}
+              className="mt-4 flex items-start gap-3 rounded border border-bone/40 bg-bone/5 px-4 py-3"
+            >
+              <div className="flex-1">
+                <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-bone/60">
+                  For {selected}
+                </p>
+                <p className="mt-1 font-display text-[15px] text-bone">
+                  {urlCustom}
+                </p>
+                {urlNote && (
+                  <p className="mt-1 text-[12px] leading-relaxed text-bone/70">
+                    {urlNote}
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={() => {
+                  setCustomOpen(true);
+                }}
+                className="font-mono text-[10px] uppercase tracking-[0.16em] text-bone/70 hover:text-bone"
+              >
+                Edit
+              </button>
+              <button
+                onClick={clearCustomOccasion}
+                aria-label="Clear custom occasion"
+                className="font-mono text-[10px] uppercase tracking-[0.16em] text-bone/50 hover:text-bone"
+              >
+                ×
+              </button>
+            </motion.div>
+          )}
 
           {/* Generate button — appears only when an occasion is selected */}
           <AnimatePresence>
