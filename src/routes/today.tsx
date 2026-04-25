@@ -619,6 +619,19 @@ function TodayPage() {
         />
       )}
 
+      {/* Custom occasion modal */}
+      {customOpen && (
+        <CustomOccasionModal
+          initialCustom={urlCustom ?? ""}
+          initialNote={urlNote ?? ""}
+          onClose={() => setCustomOpen(false)}
+          onApply={(input) => {
+            setCustomOpen(false);
+            applyCustomOccasion(input);
+          }}
+        />
+      )}
+
       {/* Three Looks bottom sheet */}
       <ThreeLooksSheet
         open={sheetOpen}
