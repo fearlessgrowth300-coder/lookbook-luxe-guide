@@ -59,6 +59,51 @@ export type Database = {
         }
         Relationships: []
       }
+      garment_sets: {
+        Row: {
+          archived: boolean
+          created_at: string
+          cultural_context: string | null
+          formality_score: number | null
+          id: string
+          must_wear_complete: boolean
+          name: string | null
+          occasion_tags: string[]
+          season: string[]
+          separable_pieces: string[]
+          set_type: string | null
+          user_id: string
+        }
+        Insert: {
+          archived?: boolean
+          created_at?: string
+          cultural_context?: string | null
+          formality_score?: number | null
+          id?: string
+          must_wear_complete?: boolean
+          name?: string | null
+          occasion_tags?: string[]
+          season?: string[]
+          separable_pieces?: string[]
+          set_type?: string | null
+          user_id: string
+        }
+        Update: {
+          archived?: boolean
+          created_at?: string
+          cultural_context?: string | null
+          formality_score?: number | null
+          id?: string
+          must_wear_complete?: boolean
+          name?: string | null
+          occasion_tags?: string[]
+          season?: string[]
+          separable_pieces?: string[]
+          set_type?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       outfits: {
         Row: {
           batch_id: string | null
@@ -266,6 +311,8 @@ export type Database = {
           placeholder: string | null
           raw_path: string
           season: string[] | null
+          set_id: string | null
+          set_role: string | null
           subcategory: string | null
           tags: string[] | null
           thumbnail_path: string | null
@@ -286,6 +333,8 @@ export type Database = {
           placeholder?: string | null
           raw_path: string
           season?: string[] | null
+          set_id?: string | null
+          set_role?: string | null
           subcategory?: string | null
           tags?: string[] | null
           thumbnail_path?: string | null
@@ -306,13 +355,23 @@ export type Database = {
           placeholder?: string | null
           raw_path?: string
           season?: string[] | null
+          set_id?: string | null
+          set_role?: string | null
           subcategory?: string | null
           tags?: string[] | null
           thumbnail_path?: string | null
           user_id?: string
           wear_count?: number | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "wardrobe_items_set_id_fkey"
+            columns: ["set_id"]
+            isOneToOne: false
+            referencedRelation: "garment_sets"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {
