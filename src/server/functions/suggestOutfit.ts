@@ -577,6 +577,21 @@ export const suggestOutfit = createServerFn({ method: "POST" })
     if (input.mood !== undefined && !MOODS.includes(input.mood)) {
       throw new Error("invalid_mood");
     }
+    // Free-text fields: cap length to keep prompt budget bounded.
+    if (input.custom_occasion !== undefined) {
+      if (typeof input.custom_occasion !== "string") {
+        throw new Error("invalid_custom_occasion");
+      }
+      if (input.custom_occasion.length > 80) {
+        input.custom_occasion = input.custom_occasion.slice(0, 80);
+      }
+    }
+    if (input.note !== undefined) {
+      if (typeof input.note !== "string") throw new Error("invalid_note");
+      if (input.note.length > 400) {
+        input.note = input.note.slice(0, 400);
+      }
+    }
     return input;
   })
   .handler(async ({ data, context }) => {
