@@ -77,6 +77,8 @@ function SettingsPage() {
 
         <FacePreviewSection userId={user!.id} />
 
+        <IntegrationsSection />
+
         <DiagnosticsPanel />
 
         <section className="mt-16">
