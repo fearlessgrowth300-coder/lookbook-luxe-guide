@@ -84,10 +84,12 @@ export function LookHero({
 
   const sideW =
     size === "lg" ? "w-[82px] sm:w-[110px]" : "w-[64px] sm:w-[88px]";
+  // Use maxHeight (not minHeight) so the composition fits inside the
+  // available sheet area instead of overflowing and being clipped.
   const heroFrameStyle =
     size === "lg"
-      ? { minHeight: "min(90vh, 1120px)", width: "min(78vw, 1080px)" }
-      : { minHeight: "min(72vh, 740px)", width: "min(72vw, 740px)" };
+      ? { maxHeight: "min(90vh, 1120px)", width: "min(78vw, 1080px)", height: "100%" }
+      : { maxHeight: "min(72vh, 740px)", width: "min(72vw, 740px)", height: "100%" };
 
   return (
     <div className="relative flex h-full w-full items-stretch justify-center gap-1 sm:gap-2">
