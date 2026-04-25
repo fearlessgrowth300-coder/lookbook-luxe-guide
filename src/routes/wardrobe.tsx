@@ -472,12 +472,38 @@ function WardrobePage() {
         )}
       </AnimatePresence>
 
-      {/* Upload sheet */}
+      {/* Entry choice: single piece vs part of a set */}
       <AnimatePresence>
-        {uploadOpen && (
-          <UploadSheet
+        {uploadOpen && entryChoice === null && (
+          <EntryChoiceSheet
+            onPickSingle={() => setEntryChoice("single")}
+            onPickSet={() => setEntryChoice("set")}
             onClose={() => setUploadOpen(false)}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Upload sheet — single piece flow */}
+      <AnimatePresence>
+        {uploadOpen && entryChoice === "single" && (
+          <UploadSheet
+            onClose={() => {
+              setUploadOpen(false);
+              setEntryChoice(null);
+            }}
             onPendingChange={setPendingUpload}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Set wizard — multi-piece coordinated flow */}
+      <AnimatePresence>
+        {uploadOpen && entryChoice === "set" && (
+          <SetWizard
+            onClose={() => {
+              setUploadOpen(false);
+              setEntryChoice(null);
+            }}
           />
         )}
       </AnimatePresence>
