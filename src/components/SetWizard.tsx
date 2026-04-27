@@ -1,19 +1,21 @@
-// Multi-step wizard for uploading a coordinated garment set
-// (suit, agbada, kaftan, tracksuit, etc.) as a single logical unit.
+// Set wizard — upload-first flow.
 //
-// Flow:
-//   1. Pick set type (suit / 3pc / agbada / kaftan / tracksuit / ankara / two_piece / other)
-//   2. Name + occasion tags + formality
-//   3. Upload each piece into its slot — full pipeline (bg removal + Gemini vision)
-//   4. Mark each piece "wearable alone" or "locked to set"
-//   5. Confirm — writes garment_sets row, then wardrobe_items rows linked by set_id
+// User taps "Part of a set" → lands directly on an upload screen.
+// They add each piece (agbada robe, trouser, etc.) one at a time. For each
+// upload we:
+//   1. Read + preview the file
+//   2. Send a small JPEG to Gemini vision (analyzeWardrobeItem)
+//   3. Auto-detect category, color, material, subcategory, suggested set role
 //
-// Reuses the existing wardrobe upload pipeline so set pieces appear in the gallery
-// with the same enhanced background-removed PNGs and AI-detected metadata as
-// standalone items.
+// Once at least 2 pieces are added, the AI also infers the SET TYPE (suit,
+// agbada, kaftan, tracksuit, etc.) from the combined analysis (categories +
+// cultural cues in tags/material/subcategory). User can override before save.
+//
+// Final step: a tiny review with auto-generated set name (editable). Save
+// writes garment_sets + wardrobe_items rows linked by set_id.
 import { motion, AnimatePresence } from "framer-motion";
-import { useEffect, useRef, useState } from "react";
-import { X, Camera, ImageIcon, Check, ArrowLeft, ChevronRight, Lock, Unlock } from "lucide-react";
+import { useEffect, useRef, useState, useMemo } from "react";
+import { X, Camera, Check, ArrowLeft, Plus, Sparkles, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useServerFn } from "@tanstack/react-start";
 import { useQueryClient } from "@tanstack/react-query";
@@ -40,7 +42,6 @@ type SetRole =
   | "jacket"
   | "trouser"
   | "waistcoat"
-  | "shirt"
   | "agbada_robe"
   | "buba_top"
   | "sokoto_trouser"
@@ -52,26 +53,17 @@ type SetRole =
   | "bottom"
   | "overlay";
 
-interface SlotConfig {
-  role: SetRole;
-  label: string;
-  /** Default category to assign to the wardrobe_items row. */
-  category: Category;
-  /** Default for "wearable alone" toggle. */
-  defaultSeparable: boolean;
-}
-
 interface PieceState {
-  /** Pre-allocated row id (becomes the wardrobe_items.id at save time). */
   id: string;
   file: File | null;
   previewUrl: string | null;
-  status: "empty" | "decoding" | "analyzing" | "ready" | "error";
+  status: "decoding" | "analyzing" | "ready" | "error";
   thumbDataUrl?: string;
+  // AI-derived fields
   category: Category;
   subcategory: string;
+  role: SetRole;
   formality: number;
-  separable: boolean;
   errorMsg?: string;
   aiAnalysis?: {
     color_primary: string;
@@ -82,171 +74,39 @@ interface PieceState {
   };
 }
 
-const SET_TYPE_OPTIONS: { id: SetType; label: string; subtitle: string }[] = [
-  { id: "suit", label: "Suit", subtitle: "Jacket + trouser" },
-  { id: "3piece_suit", label: "Suit (3pc)", subtitle: "Jacket + trouser + waistcoat" },
-  { id: "agbada", label: "Agbada", subtitle: "Robe + buba + sokoto" },
-  { id: "kaftan", label: "Kaftan", subtitle: "1- or 2-piece" },
-  { id: "tracksuit", label: "Tracksuit", subtitle: "Top + bottom" },
-  { id: "ankara_set", label: "Ankara set", subtitle: "Two-piece print" },
-  { id: "two_piece", label: "Two-piece", subtitle: "Generic coord set" },
-  { id: "other", label: "Other", subtitle: "Custom" },
-];
+const SET_TYPE_LABEL: Record<SetType, string> = {
+  suit: "Suit",
+  "3piece_suit": "Three-piece suit",
+  agbada: "Agbada",
+  kaftan: "Kaftan",
+  two_piece: "Two-piece set",
+  tracksuit: "Tracksuit",
+  ankara_set: "Ankara set",
+  other: "Set",
+};
 
-const OCCASION_TAGS = [
-  "wedding",
-  "religious_ceremony",
-  "formal_event",
-  "office",
-  "casual_outing",
-  "cultural_event",
-] as const;
-
-const FORMALITY_OPTIONS: { label: string; score: number }[] = [
-  { label: "Casual", score: 3 },
-  { label: "Smart", score: 6 },
-  { label: "Formal", score: 9 },
-  { label: "Black-tie", score: 10 },
-];
-
-function defaultNameFor(type: SetType): string {
-  switch (type) {
-    case "suit":
-      return "Navy suit";
-    case "3piece_suit":
-      return "Three-piece suit";
-    case "agbada":
-      return "Cream agbada";
-    case "kaftan":
-      return "Kaftan";
-    case "tracksuit":
-      return "Tracksuit";
-    case "ankara_set":
-      return "Ankara set";
-    case "two_piece":
-      return "Two-piece set";
-    default:
-      return "Set";
-  }
-}
-
-function defaultFormality(type: SetType): number {
-  if (type === "tracksuit") return 3;
-  if (type === "two_piece" || type === "ankara_set" || type === "kaftan") return 6;
-  return 9;
-}
-
-function defaultCulturalContext(type: SetType): string | null {
-  if (type === "agbada") return "yoruba";
-  if (type === "ankara_set") return "pan_african";
-  if (type === "kaftan") return "pan_african";
-  if (type === "suit" || type === "3piece_suit") return "western";
-  return null;
-}
-
-function slotsFor(type: SetType, kaftanIs2pc: boolean): SlotConfig[] {
-  switch (type) {
-    case "suit":
-      return [
-        { role: "jacket", label: "Jacket", category: "outerwear", defaultSeparable: true },
-        { role: "trouser", label: "Trouser", category: "bottom", defaultSeparable: false },
-      ];
-    case "3piece_suit":
-      return [
-        { role: "jacket", label: "Jacket", category: "outerwear", defaultSeparable: true },
-        { role: "trouser", label: "Trouser", category: "bottom", defaultSeparable: false },
-        { role: "waistcoat", label: "Waistcoat", category: "top", defaultSeparable: false },
-      ];
-    case "agbada":
-      return [
-        { role: "agbada_robe", label: "Agbada robe", category: "outerwear", defaultSeparable: false },
-        { role: "buba_top", label: "Buba (top)", category: "top", defaultSeparable: true },
-        { role: "sokoto_trouser", label: "Sokoto (trouser)", category: "bottom", defaultSeparable: true },
-      ];
-    case "kaftan":
-      return kaftanIs2pc
-        ? [
-            { role: "kaftan_top", label: "Kaftan top", category: "top", defaultSeparable: true },
-            { role: "kaftan_bottom", label: "Kaftan bottom", category: "bottom", defaultSeparable: true },
-          ]
-        : [{ role: "kaftan_top", label: "Kaftan", category: "top", defaultSeparable: false }];
-    case "tracksuit":
-      return [
-        { role: "tracksuit_top", label: "Top", category: "top", defaultSeparable: true },
-        { role: "tracksuit_bottom", label: "Bottom", category: "bottom", defaultSeparable: true },
-      ];
-    case "ankara_set":
-      return [
-        { role: "top", label: "Top", category: "top", defaultSeparable: true },
-        { role: "bottom", label: "Bottom", category: "bottom", defaultSeparable: true },
-      ];
-    case "two_piece":
-      return [
-        { role: "top", label: "Top", category: "top", defaultSeparable: true },
-        { role: "bottom", label: "Bottom", category: "bottom", defaultSeparable: true },
-      ];
-    default:
-      return [
-        { role: "overlay", label: "Piece 1", category: "top", defaultSeparable: true },
-        { role: "overlay", label: "Piece 2", category: "bottom", defaultSeparable: true },
-      ];
-  }
-}
-
-type Step = "type" | "meta" | "kaftan_form" | "pieces" | "separability" | "confirm";
+type Step = "upload" | "review";
 
 export function SetWizard({ onClose }: { onClose: () => void }) {
   const { user } = useAuth();
   const qc = useQueryClient();
   const analyze = useServerFn(analyzeWardrobeItem);
 
-  const [step, setStep] = useState<Step>("type");
-  const [setType, setSetType] = useState<SetType | null>(null);
-  const [kaftanIs2pc, setKaftanIs2pc] = useState(false);
-  const [name, setName] = useState("");
-  const [formality, setFormality] = useState(9);
-  const [occasionTags, setOccasionTags] = useState<Set<string>>(new Set());
+  const [step, setStep] = useState<Step>("upload");
   const [pieces, setPieces] = useState<PieceState[]>([]);
-  const [activeSlotIdx, setActiveSlotIdx] = useState<number | null>(null);
+  const [setType, setSetType] = useState<SetType>("other");
+  const [setTypeOverridden, setSetTypeOverridden] = useState(false);
+  const [name, setName] = useState("");
+  const [nameOverridden, setNameOverridden] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Pre-warm bg removal as soon as we open the wizard
   useEffect(() => {
     void warmBgRemoval();
   }, []);
 
-  // When user picks the type, seed pieces array with empty slots and advance
-  useEffect(() => {
-    if (!setType) return;
-    if (setType === "kaftan" && step === "type") {
-      setStep("kaftan_form");
-      return;
-    }
-    const slots = slotsFor(setType, kaftanIs2pc);
-    setPieces(
-      slots.map((slot) => ({
-        id: crypto.randomUUID(),
-        file: null,
-        previewUrl: null,
-        status: "empty",
-        category: slot.category,
-        subcategory: "",
-        formality: defaultFormality(setType),
-        separable: slot.defaultSeparable,
-      })),
-    );
-    setName(defaultNameFor(setType));
-    setFormality(defaultFormality(setType));
-    // Auto-advance from the type-picker to the meta step once a non-kaftan
-    // type is chosen. Kaftan goes through the 1pc/2pc form first (handled above).
-    if (step === "type" && setType !== "kaftan") {
-      setStep("meta");
-    }
-  }, [setType, kaftanIs2pc, step]);
-
-  // Cleanup object URLs when wizard closes
+  // Cleanup preview URLs on unmount
   useEffect(() => {
     return () => {
       pieces.forEach((p) => p.previewUrl && URL.revokeObjectURL(p.previewUrl));
@@ -254,13 +114,33 @@ export function SetWizard({ onClose }: { onClose: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const slots = setType ? slotsFor(setType, kaftanIs2pc) : [];
-  const filledCount = pieces.filter((p) => p.status === "ready" || p.status === "analyzing").length;
+  const allReady = pieces.length > 0 && pieces.every((p) => p.status === "ready" || p.status === "error");
+  const readyCount = pieces.filter((p) => p.status === "ready").length;
 
-  const updatePiece = (idx: number, patch: Partial<PieceState>) =>
-    setPieces((prev) => prev.map((p, i) => (i === idx ? { ...p, ...patch } : p)));
+  // Auto-infer set type and name from analyzed pieces
+  const { inferredType, inferredName } = useMemo(() => {
+    return inferSetMeta(pieces.filter((p) => p.status === "ready"));
+  }, [pieces]);
 
-  /** Build a small JPEG data URL for AI vision (max 512px edge). */
+  useEffect(() => {
+    if (!setTypeOverridden) setSetType(inferredType);
+  }, [inferredType, setTypeOverridden]);
+
+  useEffect(() => {
+    if (!nameOverridden) setName(inferredName);
+  }, [inferredName, nameOverridden]);
+
+  const updatePiece = (id: string, patch: Partial<PieceState>) =>
+    setPieces((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)));
+
+  const removePiece = (id: string) => {
+    setPieces((prev) => {
+      const target = prev.find((p) => p.id === id);
+      if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl);
+      return prev.filter((p) => p.id !== id);
+    });
+  };
+
   const buildSmallDataUrl = async (file: File): Promise<string> => {
     const bitmap = await createImageBitmap(file).catch(() => null);
     if (!bitmap) {
@@ -285,131 +165,120 @@ export function SetWizard({ onClose }: { onClose: () => void }) {
     return canvas.toDataURL("image/jpeg", 0.78);
   };
 
-  const onSlotFilePicked = async (idx: number, file: File) => {
-    try {
-      const result = await readFileToBlob(file);
-      const inMemoryFile = blobToFile(result);
-      const previewUrl = URL.createObjectURL(result.blob);
-      // Revoke previous preview if any
-      const prev = pieces[idx];
-      if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl);
-
-      updatePiece(idx, {
-        file: inMemoryFile,
-        previewUrl,
-        status: "decoding",
-        errorMsg: undefined,
-      });
-
-      // Run vision analysis
+  const handleFiles = async (files: FileList) => {
+    const list = Array.from(files);
+    for (const file of list) {
+      const id = crypto.randomUUID();
+      let preview: string | null = null;
+      let inMemoryFile: File | null = null;
       try {
-        const dataUrl = await buildSmallDataUrl(inMemoryFile);
-        updatePiece(idx, { thumbDataUrl: dataUrl, status: "analyzing" });
-
-        const res = await analyze({ data: { image_url: dataUrl } });
-        if (!res.ok) {
-          updatePiece(idx, { status: "ready" });
-          if (res.error === "rate_limited" || res.error === "payment_required") {
-            toast.error(res.message);
-          }
-          return;
-        }
-        const a = res.analysis;
-        updatePiece(idx, {
-          status: "ready",
-          subcategory: a.subcategory,
-          aiAnalysis: {
-            color_primary: a.color_primary,
-            color_secondary: a.color_secondary,
-            material: a.material,
-            season: a.season,
-            tags: a.tags,
-          },
-        });
+        const result = await readFileToBlob(file);
+        inMemoryFile = blobToFile(result);
+        preview = URL.createObjectURL(result.blob);
       } catch (err) {
-        console.error("[set-wizard analyze failed]", err);
-        updatePiece(idx, { status: "ready" });
+        const msg = err instanceof Error ? err.message : "Couldn't read photo";
+        toast.error("Skipped photo", { description: msg.slice(0, 120) });
+        continue;
       }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Couldn't read photo";
-      toast.error(`Skipped photo`, { description: msg.slice(0, 120) });
+
+      // Add a placeholder piece so user sees instant feedback
+      setPieces((prev) => [
+        ...prev,
+        {
+          id,
+          file: inMemoryFile,
+          previewUrl: preview,
+          status: "decoding",
+          category: "top",
+          subcategory: "",
+          role: "overlay",
+          formality: 6,
+        },
+      ]);
+
+      // Analyze in background
+      void (async () => {
+        try {
+          const dataUrl = await buildSmallDataUrl(inMemoryFile!);
+          updatePiece(id, { thumbDataUrl: dataUrl, status: "analyzing" });
+
+          const res = await analyze({ data: { image_url: dataUrl } });
+          if (!res.ok) {
+            updatePiece(id, {
+              status: "ready",
+              subcategory: "Unidentified",
+            });
+            if (res.error === "rate_limited" || res.error === "payment_required") {
+              toast.error(res.message);
+            }
+            return;
+          }
+          const a = res.analysis;
+          updatePiece(id, {
+            status: "ready",
+            category: a.category as Category,
+            subcategory: a.subcategory,
+            formality: a.formality_score,
+            role: roleFromAnalysis(a.category, a.subcategory, a.tags),
+            aiAnalysis: {
+              color_primary: a.color_primary,
+              color_secondary: a.color_secondary,
+              material: a.material,
+              season: a.season,
+              tags: a.tags,
+            },
+          });
+        } catch (err) {
+          console.error("[set-wizard analyze failed]", err);
+          updatePiece(id, { status: "error", errorMsg: "AI analysis failed" });
+        }
+      })();
     }
   };
 
-  const triggerSlotPick = (idx: number) => {
-    setActiveSlotIdx(idx);
-    fileInputRef.current?.click();
-  };
-
-  const removeSlotFile = (idx: number) => {
-    const prev = pieces[idx];
-    if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl);
-    updatePiece(idx, {
-      file: null,
-      previewUrl: null,
-      status: "empty",
-      thumbDataUrl: undefined,
-      aiAnalysis: undefined,
-      errorMsg: undefined,
-      subcategory: "",
-    });
-  };
-
-  const toggleOccasion = (tag: string) => {
-    setOccasionTags((prev) => {
-      const next = new Set(prev);
-      if (next.has(tag)) next.delete(tag);
-      else next.add(tag);
-      return next;
-    });
-  };
-
-  const canAdvanceFromMeta = name.trim().length > 0;
-  const canAdvanceFromPieces = filledCount >= 1; // allow partial — user may not have all pieces
+  const triggerPick = () => fileInputRef.current?.click();
 
   const handleSave = async () => {
-    if (!user || !setType || saving) return;
-
-    const ready = pieces
-      .map((p, i) => ({ piece: p, slot: slots[i], idx: i }))
-      .filter((entry) => entry.piece.status === "ready" && entry.piece.file);
-
+    if (!user || saving) return;
+    const ready = pieces.filter((p) => p.status === "ready" && p.file);
     if (ready.length === 0) {
       toast.error("Add at least one piece.");
       return;
     }
-
     setSaving(true);
 
     try {
-      // 1. Insert garment_sets row first so we have its id to link pieces
-      const separablePieceRoles = ready
-        .filter((entry) => entry.piece.separable)
-        .map((entry) => entry.slot.role);
+      // Aggregate set-level info
+      const formalityScores = ready.map((p) => p.formality).filter((n) => Number.isFinite(n));
+      const setFormality = formalityScores.length
+        ? Math.round(formalityScores.reduce((a, b) => a + b, 0) / formalityScores.length)
+        : 6;
+
+      const seasonSet = new Set<string>();
+      ready.forEach((p) => p.aiAnalysis?.season.forEach((s) => seasonSet.add(s)));
+
+      const separablePieceRoles = inferSeparable(setType, ready.map((p) => p.role));
 
       const { data: setRow, error: setErr } = await supabase
         .from("garment_sets" as any)
         .insert({
           user_id: user.id,
-          name: name.trim(),
+          name: name.trim() || SET_TYPE_LABEL[setType],
           set_type: setType,
-          formality_score: formality,
-          occasion_tags: Array.from(occasionTags),
+          formality_score: setFormality,
+          occasion_tags: [],
           must_wear_complete: separablePieceRoles.length === 0,
           separable_pieces: separablePieceRoles,
           cultural_context: defaultCulturalContext(setType),
-          season: [],
+          season: Array.from(seasonSet),
         })
         .select("id")
         .single();
 
-      if (setErr || !setRow) {
-        throw new Error(setErr?.message ?? "Failed to create set");
-      }
+      if (setErr || !setRow) throw new Error(setErr?.message ?? "Failed to create set");
 
       const setId = (setRow as unknown as { id: string }).id;
 
-      // 2. Upload + insert each piece in parallel (cap concurrency at 3)
       const queue = [...ready];
       let successes = 0;
       const failures: string[] = [];
@@ -418,9 +287,8 @@ export function SetWizard({ onClose }: { onClose: () => void }) {
         while (queue.length) {
           const next = queue.shift();
           if (!next) break;
-
           try {
-            const { piece, slot } = next;
+            const piece = next;
             if (!piece.file) continue;
 
             const rawPath = `${user.id}/${piece.id}.jpg`;
@@ -467,7 +335,7 @@ export function SetWizard({ onClose }: { onClose: () => void }) {
               enhanced_path: enhancedPathToSave,
               placeholder,
               category: piece.category,
-              subcategory: piece.subcategory.trim() || slot.label,
+              subcategory: piece.subcategory.trim() || piece.category,
               formality_score: piece.formality,
               color_primary: a?.color_primary ?? null,
               color_secondary: a?.color_secondary ?? null,
@@ -475,7 +343,7 @@ export function SetWizard({ onClose }: { onClose: () => void }) {
               season: a?.season ?? [],
               tags: a?.tags ?? [],
               set_id: setId,
-              set_role: slot.role,
+              set_role: piece.role,
             } as any);
             if (insertErr) throw new Error(`insert: ${insertErr.message}`);
 
@@ -494,13 +362,10 @@ export function SetWizard({ onClose }: { onClose: () => void }) {
       qc.invalidateQueries({ queryKey: ["garment-sets", user.id] });
 
       if (successes === 0) {
-        toast.error("No pieces saved.", {
-          description: failures[0]?.slice(0, 120),
-        });
-        // Roll back: delete the empty set row
+        toast.error("No pieces saved.", { description: failures[0]?.slice(0, 120) });
         await supabase.from("garment_sets" as any).delete().eq("id", setId);
       } else {
-        toast(`Saved ${name.trim()} · ${successes} ${successes === 1 ? "piece" : "pieces"}`);
+        toast(`Saved ${name.trim() || SET_TYPE_LABEL[setType]} · ${successes} ${successes === 1 ? "piece" : "pieces"}`);
         setTimeout(() => onClose(), 600);
       }
     } catch (err) {
@@ -511,27 +376,12 @@ export function SetWizard({ onClose }: { onClose: () => void }) {
     }
   };
 
-  // Step nav helpers
   const goBack = () => {
-    if (step === "type") onClose();
-    else if (step === "kaftan_form") {
-      setStep("type");
-      setSetType(null);
-    } else if (step === "meta") setStep("type");
-    else if (step === "pieces") setStep("meta");
-    else if (step === "separability") setStep("pieces");
-    else if (step === "confirm") setStep("separability");
+    if (step === "upload") onClose();
+    else if (step === "review") setStep("upload");
   };
 
-  const stepIndex: Record<Step, number> = {
-    type: 1,
-    kaftan_form: 1,
-    meta: 2,
-    pieces: 3,
-    separability: 4,
-    confirm: 5,
-  };
-  const totalSteps = 5;
+  const stepLabel = step === "upload" ? "1 / 2" : "2 / 2";
 
   return (
     <motion.div
@@ -551,18 +401,16 @@ export function SetWizard({ onClose }: { onClose: () => void }) {
         className="flex h-[92vh] w-full max-w-[720px] flex-col bg-bone"
         style={{ borderRadius: "4px 4px 0 0" }}
       >
-        {/* Hidden file input shared by all slots */}
         <input
           ref={fileInputRef}
           type="file"
+          multiple
           accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
           style={{ position: "absolute", opacity: 0, pointerEvents: "none", width: 1, height: 1 }}
           onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file && activeSlotIdx !== null) {
-              void onSlotFilePicked(activeSlotIdx, file);
+            if (e.target.files && e.target.files.length > 0) {
+              void handleFiles(e.target.files);
             }
-            // reset so same file can be repicked
             if (fileInputRef.current) fileInputRef.current.value = "";
           }}
         />
@@ -578,7 +426,7 @@ export function SetWizard({ onClose }: { onClose: () => void }) {
             <span className="font-mono text-[11px] uppercase tracking-[0.16em]">Back</span>
           </button>
           <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-ink">
-            Step {stepIndex[step]} / {totalSteps}
+            Step {stepLabel}
           </p>
           <button
             onClick={onClose}
@@ -590,12 +438,11 @@ export function SetWizard({ onClose }: { onClose: () => void }) {
           </button>
         </div>
 
-        {/* Body */}
         <div className="flex-1 overflow-y-auto px-6 py-8">
           <AnimatePresence mode="wait">
-            {step === "type" && (
+            {step === "upload" && (
               <motion.div
-                key="type"
+                key="upload"
                 initial={{ opacity: 0, x: 12 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: -12 }}
@@ -605,332 +452,68 @@ export function SetWizard({ onClose }: { onClose: () => void }) {
                   New set
                 </p>
                 <h2 className="mt-2 font-display text-[28px] font-light text-graphite">
-                  What kind of set?
+                  Add the pieces
                 </h2>
                 <p className="mt-3 max-w-md text-[14px] text-ink">
-                  A coordinated outfit unit — the AI treats these pieces as one and won't split
-                  them up unless you mark them as separable.
+                  Upload one photo per piece — agbada robe, trouser, jacket, etc. The AI scans
+                  each photo, identifies the colour, fabric and design, and groups them as one set.
                 </p>
 
-                <div className="mt-8 grid grid-cols-2 gap-3">
-                  {SET_TYPE_OPTIONS.map((opt) => (
-                    <motion.button
-                      {...tap}
-                      key={opt.id}
-                      onClick={() => setSetType(opt.id)}
-                      className={`flex flex-col items-start gap-2 border bg-linen/30 p-5 text-left transition-colors ${
-                        setType === opt.id
-                          ? "border-graphite bg-linen/60"
-                          : "border-ink/30 hover:border-graphite hover:bg-linen/50"
-                      }`}
-                    >
-                      <span className="font-display text-[18px] font-light text-graphite">
-                        {opt.label}
-                      </span>
-                      <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink">
-                        {opt.subtitle}
-                      </span>
-                    </motion.button>
+                <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  {pieces.map((piece) => (
+                    <PieceTile
+                      key={piece.id}
+                      piece={piece}
+                      onRemove={() => removePiece(piece.id)}
+                    />
                   ))}
-                </div>
-              </motion.div>
-            )}
 
-            {step === "kaftan_form" && (
-              <motion.div
-                key="kaftan_form"
-                initial={{ opacity: 0, x: 12 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -12 }}
-                transition={{ duration: dur.page, ease: ease.luxury }}
-              >
-                <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-ink">
-                  Kaftan
-                </p>
-                <h2 className="mt-2 font-display text-[28px] font-light text-graphite">
-                  One-piece or two-piece?
-                </h2>
-                <div className="mt-8 grid grid-cols-2 gap-3">
                   <motion.button
                     {...tap}
-                    onClick={() => {
-                      setKaftanIs2pc(false);
-                      setStep("meta");
-                    }}
-                    className="border border-ink/30 bg-linen/30 p-6 text-left transition-colors hover:border-graphite"
+                    onClick={triggerPick}
+                    className="flex aspect-[3/4] flex-col items-center justify-center gap-2 border border-dashed border-ink/40 bg-linen/30 text-ink transition-colors hover:border-graphite hover:bg-linen/50"
                   >
-                    <span className="font-display text-[18px] font-light text-graphite">
-                      One-piece
-                    </span>
-                    <p className="mt-2 font-mono text-[10px] uppercase tracking-[0.16em] text-ink">
-                      Single robe
-                    </p>
-                  </motion.button>
-                  <motion.button
-                    {...tap}
-                    onClick={() => {
-                      setKaftanIs2pc(true);
-                      setStep("meta");
-                    }}
-                    className="border border-ink/30 bg-linen/30 p-6 text-left transition-colors hover:border-graphite"
-                  >
-                    <span className="font-display text-[18px] font-light text-graphite">
-                      Two-piece
-                    </span>
-                    <p className="mt-2 font-mono text-[10px] uppercase tracking-[0.16em] text-ink">
-                      Top + bottom
-                    </p>
+                    {pieces.length === 0 ? (
+                      <>
+                        <Camera className="h-8 w-8" strokeWidth={1.25} />
+                        <span className="font-mono text-[11px] uppercase tracking-[0.16em]">
+                          Upload photo
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="h-7 w-7" strokeWidth={1.25} />
+                        <span className="font-mono text-[10px] uppercase tracking-[0.16em]">
+                          Add another piece
+                        </span>
+                      </>
+                    )}
                   </motion.button>
                 </div>
+
+                {pieces.length > 0 && allReady && readyCount > 0 && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="mt-8 flex items-start gap-3 border border-graphite/15 bg-linen/40 p-4"
+                  >
+                    <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-graphite" strokeWidth={1.5} />
+                    <div className="flex-1">
+                      <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink">
+                        AI detected
+                      </p>
+                      <p className="mt-1 font-display text-[18px] font-light text-graphite">
+                        {SET_TYPE_LABEL[inferredType]} · {inferredName}
+                      </p>
+                    </div>
+                  </motion.div>
+                )}
               </motion.div>
             )}
 
-            {step === "meta" && setType && (
+            {step === "review" && (
               <motion.div
-                key="meta"
-                initial={{ opacity: 0, x: 12 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -12 }}
-                transition={{ duration: dur.page, ease: ease.luxury }}
-              >
-                <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-ink">
-                  Details
-                </p>
-                <h2 className="mt-2 font-display text-[28px] font-light text-graphite">
-                  Name your set
-                </h2>
-
-                <input
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value.slice(0, 60))}
-                  placeholder={defaultNameFor(setType)}
-                  className="mt-6 w-full border-0 border-b border-ink bg-transparent py-3 font-display text-[20px] font-light text-graphite placeholder:text-ink/40 focus:border-graphite focus:outline-none"
-                />
-
-                <h3 className="mt-10 font-mono text-[11px] uppercase tracking-[0.2em] text-ink">
-                  Occasions
-                </h3>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {OCCASION_TAGS.map((tag) => {
-                    const active = occasionTags.has(tag);
-                    return (
-                      <motion.button
-                        {...tap}
-                        key={tag}
-                        onClick={() => toggleOccasion(tag)}
-                        className={`h-8 rounded-full px-4 font-mono text-[11px] uppercase tracking-[0.16em] transition-colors ${
-                          active
-                            ? "bg-graphite text-bone"
-                            : "border border-ink text-ink hover:border-graphite hover:text-graphite"
-                        }`}
-                      >
-                        {tag.replace(/_/g, " ")}
-                      </motion.button>
-                    );
-                  })}
-                </div>
-
-                <h3 className="mt-10 font-mono text-[11px] uppercase tracking-[0.2em] text-ink">
-                  Formality
-                </h3>
-                <div className="mt-3 flex gap-2">
-                  {FORMALITY_OPTIONS.map(({ label, score }) => (
-                    <motion.button
-                      {...tap}
-                      key={score}
-                      onClick={() => setFormality(score)}
-                      className={`h-9 flex-1 rounded-full px-3 font-mono text-[11px] uppercase tracking-[0.14em] transition-colors ${
-                        formality === score
-                          ? "bg-graphite text-bone"
-                          : "border border-ink text-ink hover:border-graphite hover:text-graphite"
-                      }`}
-                    >
-                      {label}
-                    </motion.button>
-                  ))}
-                </div>
-              </motion.div>
-            )}
-
-            {step === "pieces" && setType && (
-              <motion.div
-                key="pieces"
-                initial={{ opacity: 0, x: 12 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -12 }}
-                transition={{ duration: dur.page, ease: ease.luxury }}
-              >
-                <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-ink">
-                  {filledCount} of {slots.length} added
-                </p>
-                <h2 className="mt-2 font-display text-[28px] font-light text-graphite">
-                  Add the pieces of your {name.trim() || "set"}
-                </h2>
-                <p className="mt-3 max-w-md text-[14px] text-ink">
-                  Tap a slot, take a photo or pick from gallery. AI tags each piece automatically.
-                </p>
-
-                <div
-                  className="mt-8 grid gap-4"
-                  style={{
-                    gridTemplateColumns:
-                      slots.length === 1
-                        ? "1fr"
-                        : slots.length === 2
-                          ? "repeat(2, 1fr)"
-                          : "repeat(auto-fill, minmax(180px, 1fr))",
-                  }}
-                >
-                  {slots.map((slot, idx) => {
-                    const piece = pieces[idx];
-                    if (!piece) return null;
-                    const busy = piece.status === "decoding" || piece.status === "analyzing";
-                    return (
-                      <div
-                        key={`${slot.role}-${idx}`}
-                        className="flex flex-col gap-2 border border-ink/15 bg-linen/30 p-3"
-                      >
-                        <button
-                          onClick={() => triggerSlotPick(idx)}
-                          disabled={busy}
-                          className={`relative aspect-[3/4] w-full overflow-hidden bg-linen transition-colors ${
-                            piece.status === "empty"
-                              ? "border border-dashed border-ink/40 hover:border-graphite"
-                              : ""
-                          } ${busy ? "cursor-wait" : "cursor-pointer"}`}
-                        >
-                          {piece.previewUrl ? (
-                            <img
-                              src={piece.previewUrl}
-                              alt={slot.label}
-                              className="h-full w-full object-contain"
-                            />
-                          ) : (
-                            <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-ink">
-                              <Camera className="h-7 w-7" strokeWidth={1.25} />
-                              <span className="font-mono text-[10px] uppercase tracking-[0.16em]">
-                                Tap to add
-                              </span>
-                            </div>
-                          )}
-                          {busy && (
-                            <div className="absolute inset-x-2 bottom-2 flex items-center justify-between border border-ink/20 bg-bone/95 px-2 py-1">
-                              <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-graphite">
-                                {piece.status === "decoding" ? "READING" : "AI ANALYZING"}
-                              </span>
-                              <motion.span
-                                className="h-1.5 w-1.5 rounded-full bg-graphite"
-                                animate={{ opacity: [0.3, 1, 0.3] }}
-                                transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut" }}
-                              />
-                            </div>
-                          )}
-                          {piece.status === "ready" && (
-                            <div className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-graphite text-bone">
-                              <Check className="h-3.5 w-3.5" strokeWidth={1.5} />
-                            </div>
-                          )}
-                        </button>
-                        <div className="flex items-center justify-between">
-                          <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-graphite">
-                            {slot.label}
-                          </span>
-                          {piece.previewUrl && piece.status !== "decoding" && piece.status !== "analyzing" && (
-                            <button
-                              onClick={() => removeSlotFile(idx)}
-                              className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink hover:text-noir"
-                            >
-                              Remove
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                <p className="mt-6 font-mono text-[10px] uppercase tracking-[0.16em] text-ink/60">
-                  Skip a piece if you don't have it ready — you can add it later.
-                </p>
-              </motion.div>
-            )}
-
-            {step === "separability" && setType && (
-              <motion.div
-                key="separability"
-                initial={{ opacity: 0, x: 12 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -12 }}
-                transition={{ duration: dur.page, ease: ease.luxury }}
-              >
-                <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-ink">
-                  Mixing rules
-                </p>
-                <h2 className="mt-2 font-display text-[28px] font-light text-graphite">
-                  Can any piece be worn alone?
-                </h2>
-                <p className="mt-3 max-w-md text-[14px] text-ink">
-                  Locked pieces only appear inside this set. Separable pieces can be mixed into
-                  other outfits — like a suit jacket worn with jeans.
-                </p>
-
-                <div className="mt-8 flex flex-col gap-3">
-                  {slots.map((slot, idx) => {
-                    const piece = pieces[idx];
-                    if (!piece || piece.status !== "ready") return null;
-                    return (
-                      <div
-                        key={`${slot.role}-${idx}`}
-                        className="flex items-center gap-4 border border-ink/15 bg-linen/30 p-4"
-                      >
-                        {piece.previewUrl && (
-                          <div className="h-16 w-16 shrink-0 bg-linen">
-                            <img
-                              src={piece.previewUrl}
-                              alt={slot.label}
-                              className="h-full w-full object-contain"
-                            />
-                          </div>
-                        )}
-                        <div className="flex-1">
-                          <p className="font-display text-[16px] font-light text-graphite">
-                            {slot.label}
-                          </p>
-                          <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink">
-                            {piece.subcategory || piece.aiAnalysis?.material || "—"}
-                          </p>
-                        </div>
-                        <button
-                          onClick={() => updatePiece(idx, { separable: !piece.separable })}
-                          className={`flex items-center gap-2 rounded-full px-4 py-2 font-mono text-[10px] uppercase tracking-[0.14em] transition-colors ${
-                            piece.separable
-                              ? "bg-graphite text-bone"
-                              : "border border-ink text-ink hover:border-graphite"
-                          }`}
-                        >
-                          {piece.separable ? (
-                            <>
-                              <Unlock className="h-3 w-3" strokeWidth={1.5} />
-                              Wearable alone
-                            </>
-                          ) : (
-                            <>
-                              <Lock className="h-3 w-3" strokeWidth={1.5} />
-                              Locked to set
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              </motion.div>
-            )}
-
-            {step === "confirm" && setType && (
-              <motion.div
-                key="confirm"
+                key="review"
                 initial={{ opacity: 0, x: 12 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: -12 }}
@@ -940,53 +523,71 @@ export function SetWizard({ onClose }: { onClose: () => void }) {
                   Review
                 </p>
                 <h2 className="mt-2 font-display text-[28px] font-light text-graphite">
-                  {name.trim()}
+                  Confirm your set
                 </h2>
-                <p className="mt-3 font-mono text-[11px] uppercase tracking-[0.16em] text-ink">
-                  {SET_TYPE_OPTIONS.find((s) => s.id === setType)?.label} ·{" "}
-                  {FORMALITY_OPTIONS.find((f) => f.score === formality)?.label} ·{" "}
-                  {pieces.filter((p) => p.status === "ready").length} pieces
-                </p>
 
-                {occasionTags.size > 0 && (
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    {Array.from(occasionTags).map((tag) => (
-                      <span
-                        key={tag}
-                        className="rounded-full border border-ink px-3 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-ink"
+                <label className="mt-8 block">
+                  <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink">
+                    Name
+                  </span>
+                  <input
+                    type="text"
+                    value={name}
+                    onChange={(e) => {
+                      setName(e.target.value.slice(0, 60));
+                      setNameOverridden(true);
+                    }}
+                    placeholder={inferredName}
+                    className="mt-2 w-full border-0 border-b border-ink bg-transparent py-2 font-display text-[20px] font-light text-graphite placeholder:text-ink/40 focus:border-graphite focus:outline-none"
+                  />
+                </label>
+
+                <div className="mt-8">
+                  <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink">
+                    Set type
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {(Object.keys(SET_TYPE_LABEL) as SetType[]).map((t) => (
+                      <button
+                        key={t}
+                        onClick={() => {
+                          setSetType(t);
+                          setSetTypeOverridden(true);
+                        }}
+                        className={`h-8 rounded-full px-4 font-mono text-[10px] uppercase tracking-[0.14em] transition-colors ${
+                          setType === t
+                            ? "bg-graphite text-bone"
+                            : "border border-ink text-ink hover:border-graphite hover:text-graphite"
+                        }`}
                       >
-                        {tag.replace(/_/g, " ")}
-                      </span>
+                        {SET_TYPE_LABEL[t]}
+                      </button>
                     ))}
                   </div>
-                )}
+                </div>
 
-                <div className="mt-8 grid grid-cols-3 gap-3">
-                  {pieces.map((piece, idx) => {
-                    const slot = slots[idx];
-                    if (!slot || piece.status !== "ready" || !piece.previewUrl) return null;
-                    return (
-                      <div key={`${slot.role}-${idx}`} className="flex flex-col gap-2">
+                <div className="mt-10 grid grid-cols-3 gap-3">
+                  {pieces
+                    .filter((p) => p.status === "ready")
+                    .map((piece) => (
+                      <div key={piece.id} className="flex flex-col gap-2">
                         <div className="aspect-[3/4] bg-linen p-2">
-                          <img
-                            src={piece.previewUrl}
-                            alt={slot.label}
-                            className="h-full w-full object-contain"
-                          />
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-graphite">
-                            {slot.label}
-                          </span>
-                          {piece.separable ? (
-                            <Unlock className="h-3 w-3 text-ink" strokeWidth={1.5} />
-                          ) : (
-                            <Lock className="h-3 w-3 text-graphite" strokeWidth={1.5} />
+                          {piece.previewUrl && (
+                            <img
+                              src={piece.previewUrl}
+                              alt={piece.subcategory || piece.category}
+                              className="h-full w-full object-contain"
+                            />
                           )}
                         </div>
+                        <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-graphite">
+                          {piece.subcategory || piece.category}
+                        </p>
+                        <p className="font-mono text-[9px] uppercase tracking-[0.14em] text-ink">
+                          {piece.aiAnalysis?.material ?? "—"}
+                        </p>
                       </div>
-                    );
-                  })}
+                    ))}
                 </div>
               </motion.div>
             )}
@@ -995,48 +596,28 @@ export function SetWizard({ onClose }: { onClose: () => void }) {
 
         {/* Footer */}
         <div className="border-t border-linen bg-bone px-6 py-4">
-          <div className="flex items-center justify-end gap-3">
-            {step === "type" && (
-              <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink/60">
-                Pick a type to continue
-              </p>
-            )}
-            {step === "meta" && (
+          <div className="flex items-center justify-between gap-3">
+            <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink/60">
+              {step === "upload"
+                ? pieces.length === 0
+                  ? "Add at least 1 piece"
+                  : allReady
+                    ? `${readyCount} piece${readyCount === 1 ? "" : "s"} ready`
+                    : "AI is analysing…"
+                : `${readyCount} piece${readyCount === 1 ? "" : "s"} in this set`}
+            </p>
+            {step === "upload" && (
               <motion.button
                 {...tap}
-                onClick={() => setStep("pieces")}
-                disabled={!canAdvanceFromMeta}
+                onClick={() => setStep("review")}
+                disabled={!allReady || readyCount === 0}
                 className="flex h-12 items-center gap-2 bg-graphite px-6 font-mono text-[12px] uppercase text-bone hover:bg-noir disabled:opacity-30"
                 style={{ letterSpacing: "0.08em" }}
               >
                 Continue
-                <ChevronRight className="h-4 w-4" strokeWidth={1.5} />
               </motion.button>
             )}
-            {step === "pieces" && (
-              <motion.button
-                {...tap}
-                onClick={() => setStep("separability")}
-                disabled={!canAdvanceFromPieces}
-                className="flex h-12 items-center gap-2 bg-graphite px-6 font-mono text-[12px] uppercase text-bone hover:bg-noir disabled:opacity-30"
-                style={{ letterSpacing: "0.08em" }}
-              >
-                Continue
-                <ChevronRight className="h-4 w-4" strokeWidth={1.5} />
-              </motion.button>
-            )}
-            {step === "separability" && (
-              <motion.button
-                {...tap}
-                onClick={() => setStep("confirm")}
-                className="flex h-12 items-center gap-2 bg-graphite px-6 font-mono text-[12px] uppercase text-bone hover:bg-noir"
-                style={{ letterSpacing: "0.08em" }}
-              >
-                Review
-                <ChevronRight className="h-4 w-4" strokeWidth={1.5} />
-              </motion.button>
-            )}
-            {step === "confirm" && (
+            {step === "review" && (
               <motion.button
                 {...tap}
                 onClick={handleSave}
@@ -1052,4 +633,161 @@ export function SetWizard({ onClose }: { onClose: () => void }) {
       </motion.div>
     </motion.div>
   );
+}
+
+// ---------- Piece tile ----------
+function PieceTile({ piece, onRemove }: { piece: PieceState; onRemove: () => void }) {
+  const busy = piece.status === "decoding" || piece.status === "analyzing";
+  return (
+    <div className="flex flex-col gap-2 border border-ink/15 bg-linen/30 p-3">
+      <div className="relative aspect-[3/4] w-full overflow-hidden bg-linen">
+        {piece.previewUrl && (
+          <img
+            src={piece.previewUrl}
+            alt={piece.subcategory || piece.category}
+            className="h-full w-full object-contain"
+          />
+        )}
+        {busy && (
+          <div className="absolute inset-x-2 bottom-2 flex items-center justify-between border border-ink/20 bg-bone/95 px-2 py-1">
+            <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-graphite">
+              {piece.status === "decoding" ? "READING" : "AI SCANNING"}
+            </span>
+            <Loader2 className="h-3 w-3 animate-spin text-graphite" strokeWidth={1.5} />
+          </div>
+        )}
+        {piece.status === "ready" && (
+          <div className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-graphite text-bone">
+            <Check className="h-3.5 w-3.5" strokeWidth={1.5} />
+          </div>
+        )}
+        {piece.status === "error" && (
+          <div className="absolute inset-x-2 bottom-2 border border-noir/30 bg-bone/95 px-2 py-1">
+            <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-noir">
+              {piece.errorMsg || "Failed"}
+            </span>
+          </div>
+        )}
+      </div>
+      <div className="flex items-center justify-between">
+        <span className="truncate font-mono text-[10px] uppercase tracking-[0.14em] text-graphite">
+          {piece.status === "ready" ? piece.subcategory || piece.category : "Analysing…"}
+        </span>
+        <button
+          onClick={onRemove}
+          disabled={busy}
+          className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink hover:text-noir disabled:opacity-30"
+        >
+          Remove
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Inference helpers ----------
+
+function roleFromAnalysis(category: string, subcategory: string, tags: string[]): SetRole {
+  const text = `${subcategory} ${tags.join(" ")}`.toLowerCase();
+  if (text.includes("agbada")) return "agbada_robe";
+  if (text.includes("buba")) return "buba_top";
+  if (text.includes("sokoto")) return "sokoto_trouser";
+  if (text.includes("kaftan")) return category === "bottom" ? "kaftan_bottom" : "kaftan_top";
+  if (text.includes("waistcoat") || text.includes("vest")) return "waistcoat";
+  if (text.includes("blazer") || text.includes("suit jacket")) return "jacket";
+  if (text.includes("tracksuit") || text.includes("track")) {
+    return category === "bottom" ? "tracksuit_bottom" : "tracksuit_top";
+  }
+  if (category === "outerwear") return "jacket";
+  if (category === "bottom") return "trouser";
+  if (category === "top") return "top";
+  return "overlay";
+}
+
+function inferSetMeta(ready: PieceState[]): { inferredType: SetType; inferredName: string } {
+  if (ready.length === 0) return { inferredType: "other", inferredName: "" };
+
+  const tagText = ready
+    .flatMap((p) => [p.subcategory, p.aiAnalysis?.material ?? "", ...(p.aiAnalysis?.tags ?? [])])
+    .join(" ")
+    .toLowerCase();
+
+  const cats = ready.map((p) => p.category);
+  const has = (c: Category) => cats.includes(c);
+
+  let type: SetType = "other";
+  if (tagText.includes("agbada") || tagText.includes("buba") || tagText.includes("sokoto")) {
+    type = "agbada";
+  } else if (tagText.includes("kaftan")) {
+    type = "kaftan";
+  } else if (tagText.includes("ankara") || tagText.includes("african print")) {
+    type = "ankara_set";
+  } else if (tagText.includes("tracksuit") || tagText.includes("track pant") || tagText.includes("athletic")) {
+    type = "tracksuit";
+  } else if (
+    has("outerwear") &&
+    has("bottom") &&
+    (tagText.includes("suit") || tagText.includes("blazer"))
+  ) {
+    type = ready.some((p) => /waistcoat|vest/.test(`${p.subcategory} ${p.aiAnalysis?.tags?.join(" ") ?? ""}`.toLowerCase()))
+      ? "3piece_suit"
+      : "suit";
+  } else if (has("top") && has("bottom")) {
+    type = "two_piece";
+  }
+
+  // Build a name from dominant color + type
+  const primaryColor = ready.find((p) => p.aiAnalysis?.color_primary)?.aiAnalysis?.color_primary;
+  const colorWord = primaryColor ? colorToWord(primaryColor) : null;
+  const baseName = SET_TYPE_LABEL[type];
+  const inferredName = colorWord ? `${capitalize(colorWord)} ${baseName.toLowerCase()}` : baseName;
+
+  return { inferredType: type, inferredName };
+}
+
+function inferSeparable(setType: SetType, roles: SetRole[]): SetRole[] {
+  // Conservative defaults: jackets and tops can usually be worn alone,
+  // suit/agbada trousers usually can't.
+  const separable: SetRole[] = [];
+  for (const role of roles) {
+    if (role === "jacket" && setType !== "agbada") separable.push(role);
+    if (role === "buba_top") separable.push(role);
+    if (role === "top" && (setType === "ankara_set" || setType === "two_piece")) separable.push(role);
+    if (role === "tracksuit_top" || role === "tracksuit_bottom") separable.push(role);
+  }
+  return separable;
+}
+
+function defaultCulturalContext(type: SetType): string | null {
+  if (type === "agbada") return "yoruba";
+  if (type === "ankara_set" || type === "kaftan") return "pan_african";
+  if (type === "suit" || type === "3piece_suit") return "western";
+  return null;
+}
+
+function colorToWord(hex: string): string | null {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return null;
+  const n = parseInt(m[1], 16);
+  const r = (n >> 16) & 255;
+  const g = (n >> 8) & 255;
+  const b = n & 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const lightness = (max + min) / 2;
+  if (max - min < 18) {
+    if (lightness < 50) return "black";
+    if (lightness < 110) return "charcoal";
+    if (lightness < 180) return "grey";
+    return "ivory";
+  }
+  if (r > g && r > b) return r > 180 && g < 120 ? "red" : "rust";
+  if (g > r && g > b) return "olive";
+  if (b > r && b > g) return b > 150 ? "blue" : "navy";
+  if (r > 150 && g > 120 && b < 100) return "camel";
+  return "earth";
+}
+
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
