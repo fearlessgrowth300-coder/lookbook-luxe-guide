@@ -131,32 +131,42 @@ function OutfitPage() {
     },
   });
 
+  const [wornSheetOpen, setWornSheetOpen] = useState(false);
+  const [dirtySelected, setDirtySelected] = useState<Set<string>>(new Set());
+
   const wornMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (dirtyIds: string[]) => {
       await supabase
         .from("outfits")
         .update({ worn_on: new Date().toISOString().slice(0, 10) })
         .eq("id", id);
       // Bump wear_count on each item
       const ids = outfitQuery.data?.item_ids ?? [];
+      const nowIso = new Date().toISOString();
       for (const itemId of ids) {
         const { data: cur } = await supabase
           .from("wardrobe_items")
           .select("wear_count")
           .eq("id", itemId)
           .single();
+        const dirty = dirtyIds.includes(itemId);
         await supabase
           .from("wardrobe_items")
           .update({
-            last_worn: new Date().toISOString(),
+            last_worn: nowIso,
             wear_count: (cur?.wear_count ?? 0) + 1,
+            ...(dirty ? { is_dirty: true, dirty_since: nowIso } : {}),
           })
           .eq("id", itemId);
       }
+      return dirtyIds.length;
     },
-    onSuccess: () => {
+    onSuccess: (count) => {
       navigator.vibrate?.(8);
-      toast("Noted.");
+      qc.invalidateQueries({ queryKey: ["wardrobe", user?.id] });
+      toast(count > 0 ? `Noted. ${count} piece${count === 1 ? "" : "s"} sent to laundry.` : "Noted.");
+      setWornSheetOpen(false);
+      setDirtySelected(new Set());
     },
   });
 
