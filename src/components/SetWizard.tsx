@@ -165,8 +165,8 @@ export function SetWizard({ onClose }: { onClose: () => void }) {
     return canvas.toDataURL("image/jpeg", 0.78);
   };
 
-  const handleFiles = async (files: FileList) => {
-    const list = Array.from(files);
+  const handleFiles = async (files: FileList | File[]) => {
+    const list = Array.from(files as ArrayLike<File>);
     for (const file of list) {
       const id = crypto.randomUUID();
       let preview: string | null = null;
