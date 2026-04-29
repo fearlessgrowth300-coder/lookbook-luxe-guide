@@ -765,6 +765,35 @@ function Tile({
         </button>
       )}
 
+      {/* Dirty badge + "Washed" toggle */}
+      {item?.is_dirty && !pending && (
+        <>
+          <div className="absolute left-2 top-2 z-10 rounded-full bg-graphite px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.14em] text-bone">
+            Dirty
+          </div>
+          <button
+            type="button"
+            onClick={async (e) => {
+              e.stopPropagation();
+              if (!user) return;
+              const { error } = await supabase
+                .from("wardrobe_items")
+                .update({ is_dirty: false, dirty_since: null })
+                .eq("id", item.id);
+              if (error) {
+                toast.error("Couldn't mark as washed");
+                return;
+              }
+              toast.success("Back in the wardrobe");
+              qc.invalidateQueries({ queryKey: ["wardrobe", user.id] });
+            }}
+            className="absolute bottom-2 right-2 z-10 rounded-full border border-ink/20 bg-bone/95 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-graphite shadow-sm transition-colors hover:bg-graphite hover:text-bone"
+          >
+            Washed
+          </button>
+        </>
+      )}
+
       {/* Meta bar */}
       <div
         className="absolute inset-x-0 bottom-0 translate-y-full bg-bone/95 px-3 py-2 transition-transform group-hover:translate-y-0"
