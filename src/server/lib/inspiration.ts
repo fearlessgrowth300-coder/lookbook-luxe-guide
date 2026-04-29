@@ -26,7 +26,9 @@ export type InspirationStatus =
   | { state: "skipped"; reason: "no_apify_key" }
   | { state: "failed"; reason: string };
 
-const APIFY_ACTOR = "epctex~pinterest-scraper"; // public Pinterest scraper actor
+// Free Pinterest scraper actor (no rental required). Override via APIFY_PINTEREST_ACTOR.
+// Format: "username~actor-name" (tilde, not slash).
+const APIFY_ACTOR = process.env.APIFY_PINTEREST_ACTOR || "bebity~pinterest-scraper";
 const APIFY_BASE = "https://api.apify.com/v2";
 const SCRAPE_TIMEOUT_MS = 45_000;
 const VISION_TIMEOUT_MS = 12_000;
@@ -141,12 +143,17 @@ async function scrapePinterest(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        // bebity/pinterest-scraper input shape
+        searchQueries: [query],
+        resultsPerPage: limit,
+        // Backwards-compatible fields some other actors use
         startUrls: [
           { url: `https://www.pinterest.com/search/pins/?q=${encodeURIComponent(query)}` },
         ],
         proxy: { useApifyProxy: true },
         endPage: 1,
         searchLimit: limit,
+        maxItems: limit,
       }),
       signal: controller.signal,
     });
@@ -174,11 +181,15 @@ async function scrapePinterest(
     // Different actor versions use different keys — try common ones.
     const candidate =
       (typeof rec.imageUrl === "string" && rec.imageUrl) ||
+      (typeof rec.image_url === "string" && rec.image_url) ||
       (typeof rec.image === "string" && rec.image) ||
+      (typeof rec.thumbnail === "string" && rec.thumbnail) ||
+      (typeof rec.media === "string" && rec.media) ||
       (rec.images &&
         typeof rec.images === "object" &&
         ((rec.images as Record<string, { url?: string }>).orig?.url ??
-          (rec.images as Record<string, { url?: string }>)["736x"]?.url)) ||
+          (rec.images as Record<string, { url?: string }>)["736x"]?.url ??
+          (rec.images as Record<string, { url?: string }>)["474x"]?.url)) ||
       null;
     if (typeof candidate === "string" && candidate.startsWith("http")) {
       pins.push({ imageUrl: candidate });
