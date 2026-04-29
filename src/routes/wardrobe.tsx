@@ -134,7 +134,7 @@ function WardrobePage() {
       const { data, error } = await supabase
         .from("wardrobe_items")
         .select(
-          "id, raw_path, enhanced_path, thumbnail_path, placeholder, category, subcategory, color_primary, formality_score, set_id, set_role",
+          "id, raw_path, enhanced_path, thumbnail_path, placeholder, category, subcategory, color_primary, formality_score, set_id, set_role, is_dirty, dirty_since",
         )
         .eq("user_id", user!.id)
         .eq("archived", false)
