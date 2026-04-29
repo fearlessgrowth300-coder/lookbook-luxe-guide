@@ -15,7 +15,7 @@
 // writes garment_sets + wardrobe_items rows linked by set_id.
 import { motion, AnimatePresence } from "framer-motion";
 import { useEffect, useRef, useState, useMemo } from "react";
-import { X, Camera, Check, ArrowLeft, Plus, Sparkles, Loader2 } from "lucide-react";
+import { X, Camera, Check, ArrowLeft, Plus, Sparkles, Loader2, ClipboardPaste } from "lucide-react";
 import { toast } from "sonner";
 import { useServerFn } from "@tanstack/react-start";
 import { useQueryClient } from "@tanstack/react-query";
