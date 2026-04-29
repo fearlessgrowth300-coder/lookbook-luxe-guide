@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Plus, X, Upload as UploadIcon, Camera, ImageIcon, Check, Sparkles, Layers, Shirt, RefreshCw, Loader2 } from "lucide-react";
+import { Plus, X, Upload as UploadIcon, Camera, ImageIcon, Check, Sparkles, Layers, Shirt, RefreshCw, Loader2, ClipboardPaste } from "lucide-react";
 import { toast } from "sonner";
 import { useServerFn } from "@tanstack/react-start";
 import { Shell } from "@/components/Shell";
@@ -1139,6 +1139,59 @@ function UploadSheet({
   const onPickGallery = () => galleryInputRef.current?.click();
   const onPickCamera = () => cameraInputRef.current?.click();
 
+  // Paste image from clipboard (Cmd/Ctrl+V or "Paste" button).
+  // Tries the async Clipboard API first; falls back to a hidden contentEditable
+  // element + paste event for browsers without clipboard.read() permission.
+  const onPasteImage = async () => {
+    try {
+      if (navigator.clipboard && "read" in navigator.clipboard) {
+        const clipItems = await navigator.clipboard.read();
+        const files: File[] = [];
+        for (const ci of clipItems) {
+          const imgType = ci.types.find((t) => t.startsWith("image/"));
+          if (!imgType) continue;
+          const blob = await ci.getType(imgType);
+          const ext = imgType.split("/")[1] || "png";
+          files.push(
+            new File([blob], `pasted-${Date.now()}.${ext}`, { type: imgType }),
+          );
+        }
+        if (files.length) {
+          await onFilesPicked(files);
+          return;
+        }
+        toast.error("No image in clipboard. Copy one first.");
+      } else {
+        toast.error("Paste not supported here — try Cmd/Ctrl + V");
+      }
+    } catch (err) {
+      console.warn("[paste-image] failed", err);
+      toast.error("Couldn't read clipboard. Try Cmd/Ctrl + V instead.");
+    }
+  };
+
+  // Listen for keyboard paste events anywhere in the sheet
+  useEffect(() => {
+    const handler = async (e: ClipboardEvent) => {
+      const dt = e.clipboardData;
+      if (!dt) return;
+      const files: File[] = [];
+      for (const it of Array.from(dt.items)) {
+        if (it.kind === "file" && it.type.startsWith("image/")) {
+          const f = it.getAsFile();
+          if (f) files.push(f);
+        }
+      }
+      if (files.length) {
+        e.preventDefault();
+        await onFilesPicked(files);
+      }
+    };
+    window.addEventListener("paste", handler);
+    return () => window.removeEventListener("paste", handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const readyCount = items.filter((it) => it.status === "ready" && it.category).length;
   const analyzingCount = items.filter(
     (it) => it.status === "analyzing" || it.status === "decoding",
@@ -1227,7 +1280,7 @@ function UploadSheet({
         <div className="flex-1 overflow-y-auto px-6 py-6">
           {items.length === 0 ? (
             <>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
                 <motion.button
                   {...tap}
                   onClick={onPickCamera}
@@ -1246,6 +1299,16 @@ function UploadSheet({
                   <ImageIcon className="h-7 w-7 text-graphite" strokeWidth={1.25} />
                   <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-graphite">
                     Choose multiple
+                  </span>
+                </motion.button>
+                <motion.button
+                  {...tap}
+                  onClick={onPasteImage}
+                  className="col-span-2 flex flex-col items-center justify-center gap-3 border border-ink/40 bg-linen/30 py-10 transition-colors hover:border-graphite hover:bg-linen/60 sm:col-span-1"
+                >
+                  <ClipboardPaste className="h-7 w-7 text-graphite" strokeWidth={1.25} />
+                  <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-graphite">
+                    Paste image
                   </span>
                 </motion.button>
               </div>
@@ -1277,7 +1340,7 @@ function UploadSheet({
                 JPG · PNG · WEBP · HEIC · 10 MB EACH
               </p>
               <p className="mt-2 text-center font-mono text-[10px] uppercase tracking-[0.16em] text-ink/60">
-                AI will categorize each piece automatically
+                AI categorizes each piece · Tip: Cmd/Ctrl + V to paste
               </p>
             </>
           ) : (
