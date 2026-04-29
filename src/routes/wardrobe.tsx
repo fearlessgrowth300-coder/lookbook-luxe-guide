@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Plus, X, Upload as UploadIcon, Camera, ImageIcon, Check, Sparkles, Layers, Shirt } from "lucide-react";
+import { Plus, X, Upload as UploadIcon, Camera, ImageIcon, Check, Sparkles, Layers, Shirt, RefreshCw, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useServerFn } from "@tanstack/react-start";
 import { Shell } from "@/components/Shell";
@@ -555,6 +555,10 @@ function Tile({
   onTap?: () => void;
   pending?: { previewUrl: string; label: string };
 }) {
+  const qc = useQueryClient();
+  const { user } = useAuth();
+  const [retrying, setRetrying] = useState(false);
+  const [autoTried, setAutoTried] = useState(false);
   const stagger = Math.min(index, 17) * 0.035;
   const thumbUrl = item?.thumbnail_path
     ? supabase.storage.from("wardrobe-thumbs").getPublicUrl(item.thumbnail_path).data.publicUrl
@@ -562,6 +566,49 @@ function Tile({
   const enhancedUrl = item?.enhanced_path
     ? supabase.storage.from("wardrobe-enhanced").getPublicUrl(item.enhanced_path).data.publicUrl
     : null;
+  const needsBgRetry = !!item && !item.enhanced_path;
+
+  const retryBgRemoval = async (opts?: { silent?: boolean }) => {
+    if (!item || !user || retrying) return;
+    setRetrying(true);
+    try {
+      const { data, error: dlErr } = await supabase.storage
+        .from("wardrobe-raw")
+        .download(item.raw_path);
+      if (dlErr || !data) throw dlErr ?? new Error("Could not load original photo");
+      const enhancedBlob = await removeBg(data);
+      const enhancedPath = `${user.id}/${item.id}.png`;
+      const up = await supabase.storage
+        .from("wardrobe-enhanced")
+        .upload(enhancedPath, enhancedBlob, { contentType: "image/png", upsert: true });
+      if (up.error) throw up.error;
+      const { error: updErr } = await supabase
+        .from("wardrobe_items")
+        .update({ enhanced_path: enhancedPath })
+        .eq("id", item.id);
+      if (updErr) throw updErr;
+      if (!opts?.silent) toast.success("Background removed");
+      qc.invalidateQueries({ queryKey: ["wardrobe", user.id] });
+    } catch (err) {
+      console.warn("[bg-removal retry failed]", err);
+      if (!opts?.silent) {
+        const msg = err instanceof Error ? err.message : "Retry failed";
+        toast.error(`Background removal failed — ${msg.slice(0, 80)}`);
+      }
+    } finally {
+      setRetrying(false);
+    }
+  };
+
+  // One silent auto-retry per session when a tile is missing its cutout.
+  // Often fails on first upload due to model download flakiness; quietly
+  // try once more so the user doesn't have to.
+  useEffect(() => {
+    if (!needsBgRetry || autoTried || pending || retrying) return;
+    setAutoTried(true);
+    retryBgRemoval({ silent: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [needsBgRetry, autoTried, pending]);
   // Prefer the enhanced (background-removed) PNG so wardrobe tiles always
   // show the cutout look. Thumbnails are generated from the raw upload and
   // still contain the original background, so they're only used as a fallback
@@ -681,6 +728,28 @@ function Tile({
           </span>
           <span className="h-2 w-2 rounded-full bg-graphite" />
         </div>
+      )}
+
+      {/* Background-removal retry — appears when the cutout never landed.
+          Auto-retries once silently per session; this button is the manual fallback. */}
+      {item && needsBgRetry && !pending && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            retryBgRemoval();
+          }}
+          disabled={retrying}
+          title={retrying ? "Removing background…" : "Retry background removal"}
+          aria-label={retrying ? "Removing background" : "Retry background removal"}
+          className="absolute right-2 top-2 z-10 flex h-7 w-7 items-center justify-center border border-ink/20 bg-bone/95 text-graphite shadow-sm transition-colors hover:bg-graphite hover:text-bone disabled:opacity-60"
+        >
+          {retrying ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.5} />
+          ) : (
+            <RefreshCw className="h-3.5 w-3.5" strokeWidth={1.5} />
+          )}
+        </button>
       )}
 
       {/* Meta bar */}
