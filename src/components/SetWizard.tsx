@@ -238,6 +238,54 @@ export function SetWizard({ onClose }: { onClose: () => void }) {
 
   const triggerPick = () => fileInputRef.current?.click();
 
+  const onPasteImage = async () => {
+    try {
+      if (!navigator.clipboard?.read) {
+        toast.error("Paste not supported", { description: "Try Cmd/Ctrl + V instead." });
+        return;
+      }
+      const items = await navigator.clipboard.read();
+      const files: File[] = [];
+      for (const item of items) {
+        const imgType = item.types.find((t) => t.startsWith("image/"));
+        if (!imgType) continue;
+        const blob = await item.getType(imgType);
+        const ext = imgType.split("/")[1] || "png";
+        files.push(new File([blob], `pasted-${Date.now()}.${ext}`, { type: imgType }));
+      }
+      if (!files.length) {
+        toast.error("No image in clipboard");
+        return;
+      }
+      await handleFiles(files);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Paste failed";
+      toast.error("Couldn't paste", { description: msg.slice(0, 120) });
+    }
+  };
+
+  // Cmd/Ctrl + V global paste listener while wizard is open
+  useEffect(() => {
+    const handler = async (e: ClipboardEvent) => {
+      const dt = e.clipboardData;
+      if (!dt) return;
+      const files: File[] = [];
+      for (const it of Array.from(dt.items)) {
+        if (it.kind === "file" && it.type.startsWith("image/")) {
+          const f = it.getAsFile();
+          if (f) files.push(f);
+        }
+      }
+      if (files.length) {
+        e.preventDefault();
+        await handleFiles(files);
+      }
+    };
+    window.addEventListener("paste", handler);
+    return () => window.removeEventListener("paste", handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleSave = async () => {
     if (!user || saving) return;
     const ready = pieces.filter((p) => p.status === "ready" && p.file);
