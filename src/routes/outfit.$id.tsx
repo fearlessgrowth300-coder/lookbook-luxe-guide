@@ -164,7 +164,8 @@ function OutfitPage() {
         .from("wardrobe_items")
         .select("id")
         .eq("user_id", user!.id)
-        .eq("archived", false);
+        .eq("archived", false)
+        .eq("is_dirty", false);
       const result = await mockSuggestOutfit({
         user_id: user!.id,
         occasion: outfitQuery.data!.occasion as Occasion,
