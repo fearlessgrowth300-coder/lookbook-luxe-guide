@@ -181,11 +181,15 @@ async function scrapePinterest(
     // Different actor versions use different keys — try common ones.
     const candidate =
       (typeof rec.imageUrl === "string" && rec.imageUrl) ||
+      (typeof rec.image_url === "string" && rec.image_url) ||
       (typeof rec.image === "string" && rec.image) ||
+      (typeof rec.thumbnail === "string" && rec.thumbnail) ||
+      (typeof rec.media === "string" && rec.media) ||
       (rec.images &&
         typeof rec.images === "object" &&
         ((rec.images as Record<string, { url?: string }>).orig?.url ??
-          (rec.images as Record<string, { url?: string }>)["736x"]?.url)) ||
+          (rec.images as Record<string, { url?: string }>)["736x"]?.url ??
+          (rec.images as Record<string, { url?: string }>)["474x"]?.url)) ||
       null;
     if (typeof candidate === "string" && candidate.startsWith("http")) {
       pins.push({ imageUrl: candidate });
