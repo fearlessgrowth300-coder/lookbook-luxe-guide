@@ -67,15 +67,28 @@ export async function removeBg(
   onProgress?: (progress: BgRemovalProgress) => void,
 ): Promise<Blob> {
   const mod = await loadModule();
-  const result = await mod.removeBackground(input, {
-    model: MODEL,
-    output: { format: "image/png", quality: 0.85 },
-    progress: onProgress
-      ? (key: string, current: number, total: number) => {
-          const progress = total > 0 ? current / total : 0;
-          onProgress({ step: key, progress });
-        }
-      : undefined,
-  });
-  return result;
+  const progressCb = onProgress
+    ? (key: string, current: number, total: number) => {
+        const progress = total > 0 ? current / total : 0;
+        onProgress({ step: key, progress });
+      }
+    : undefined;
+
+  try {
+    return await mod.removeBackground(input, {
+      model: MODEL,
+      output: { format: "image/png", quality: 0.85 },
+      progress: progressCb,
+    });
+  } catch (err) {
+    // Full isnet (~40MB) can fail to download on flaky mobile networks.
+    // Fall back to the smaller, faster quint8 variant so we still ship a
+    // background-removed thumbnail rather than silently skipping it.
+    console.warn("[bg-removal] isnet failed, retrying with isnet_quint8", err);
+    return await mod.removeBackground(input, {
+      model: "isnet_quint8",
+      output: { format: "image/png", quality: 0.85 },
+      progress: progressCb,
+    });
+  }
 }
