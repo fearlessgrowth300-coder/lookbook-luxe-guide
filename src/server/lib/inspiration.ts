@@ -26,7 +26,9 @@ export type InspirationStatus =
   | { state: "skipped"; reason: "no_apify_key" }
   | { state: "failed"; reason: string };
 
-const APIFY_ACTOR = "epctex~pinterest-scraper"; // public Pinterest scraper actor
+// Free Pinterest scraper actor (no rental required). Override via APIFY_PINTEREST_ACTOR.
+// Format: "username~actor-name" (tilde, not slash).
+const APIFY_ACTOR = process.env.APIFY_PINTEREST_ACTOR || "bebity~pinterest-scraper";
 const APIFY_BASE = "https://api.apify.com/v2";
 const SCRAPE_TIMEOUT_MS = 45_000;
 const VISION_TIMEOUT_MS = 12_000;
