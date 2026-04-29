@@ -344,9 +344,12 @@ function OutfitPage() {
                 loading={shuffleMutation.isPending}
               />
               <ActionBtn
-                label="Worn"
+                label="I wore this"
                 icon={<Check className="h-5 w-5" strokeWidth={1.25} />}
-                onClick={() => wornMutation.mutate()}
+                onClick={() => {
+                  setDirtySelected(new Set(items.map((i) => i.id)));
+                  setWornSheetOpen(true);
+                }}
               />
               <ActionBtn
                 label="Share"
