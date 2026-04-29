@@ -555,6 +555,10 @@ function Tile({
   onTap?: () => void;
   pending?: { previewUrl: string; label: string };
 }) {
+  const qc = useQueryClient();
+  const { user } = useAuth();
+  const [retrying, setRetrying] = useState(false);
+  const [autoTried, setAutoTried] = useState(false);
   const stagger = Math.min(index, 17) * 0.035;
   const thumbUrl = item?.thumbnail_path
     ? supabase.storage.from("wardrobe-thumbs").getPublicUrl(item.thumbnail_path).data.publicUrl
@@ -562,6 +566,49 @@ function Tile({
   const enhancedUrl = item?.enhanced_path
     ? supabase.storage.from("wardrobe-enhanced").getPublicUrl(item.enhanced_path).data.publicUrl
     : null;
+  const needsBgRetry = !!item && !item.enhanced_path;
+
+  const retryBgRemoval = async (opts?: { silent?: boolean }) => {
+    if (!item || !user || retrying) return;
+    setRetrying(true);
+    try {
+      const { data, error: dlErr } = await supabase.storage
+        .from("wardrobe-raw")
+        .download(item.raw_path);
+      if (dlErr || !data) throw dlErr ?? new Error("Could not load original photo");
+      const enhancedBlob = await removeBg(data);
+      const enhancedPath = `${user.id}/${item.id}.png`;
+      const up = await supabase.storage
+        .from("wardrobe-enhanced")
+        .upload(enhancedPath, enhancedBlob, { contentType: "image/png", upsert: true });
+      if (up.error) throw up.error;
+      const { error: updErr } = await supabase
+        .from("wardrobe_items")
+        .update({ enhanced_path: enhancedPath })
+        .eq("id", item.id);
+      if (updErr) throw updErr;
+      if (!opts?.silent) toast.success("Background removed");
+      qc.invalidateQueries({ queryKey: ["wardrobe", user.id] });
+    } catch (err) {
+      console.warn("[bg-removal retry failed]", err);
+      if (!opts?.silent) {
+        const msg = err instanceof Error ? err.message : "Retry failed";
+        toast.error(`Background removal failed — ${msg.slice(0, 80)}`);
+      }
+    } finally {
+      setRetrying(false);
+    }
+  };
+
+  // One silent auto-retry per session when a tile is missing its cutout.
+  // Often fails on first upload due to model download flakiness; quietly
+  // try once more so the user doesn't have to.
+  useEffect(() => {
+    if (!needsBgRetry || autoTried || pending || retrying) return;
+    setAutoTried(true);
+    retryBgRemoval({ silent: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [needsBgRetry, autoTried, pending]);
   // Prefer the enhanced (background-removed) PNG so wardrobe tiles always
   // show the cutout look. Thumbnails are generated from the raw upload and
   // still contain the original background, so they're only used as a fallback
