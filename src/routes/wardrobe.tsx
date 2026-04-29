@@ -86,6 +86,8 @@ interface WardrobeItem {
   formality_score: number | null;
   set_id: string | null;
   set_role: string | null;
+  is_dirty: boolean | null;
+  dirty_since: string | null;
 }
 
 interface GarmentSet {
