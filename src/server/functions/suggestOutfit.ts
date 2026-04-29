@@ -623,7 +623,8 @@ export const suggestOutfit = createServerFn({ method: "POST" })
         "id, category, subcategory, color_primary, color_secondary, material, season, formality_score, tags, wear_count, last_worn",
       )
       .eq("user_id", userId)
-      .eq("archived", false);
+      .eq("archived", false)
+      .eq("is_dirty", false);
     if (itemsErr) throw itemsErr;
     if (!items || items.length < 3) {
       return {

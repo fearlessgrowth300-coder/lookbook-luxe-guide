@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { motion } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Bookmark, Shuffle, Check, Share2 } from "lucide-react";
 import { toast } from "sonner";
 import { Shell } from "@/components/Shell";
@@ -12,6 +12,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { ease, dur, tap } from "@/lib/motion";
 import { mockSuggestOutfit, type Occasion } from "@/server/mock-ai";
 import { renderOutfit } from "@/server/functions/renderOutfit";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/outfit/$id")({
   component: () => (
@@ -129,32 +131,42 @@ function OutfitPage() {
     },
   });
 
+  const [wornSheetOpen, setWornSheetOpen] = useState(false);
+  const [dirtySelected, setDirtySelected] = useState<Set<string>>(new Set());
+
   const wornMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (dirtyIds: string[]) => {
       await supabase
         .from("outfits")
         .update({ worn_on: new Date().toISOString().slice(0, 10) })
         .eq("id", id);
       // Bump wear_count on each item
       const ids = outfitQuery.data?.item_ids ?? [];
+      const nowIso = new Date().toISOString();
       for (const itemId of ids) {
         const { data: cur } = await supabase
           .from("wardrobe_items")
           .select("wear_count")
           .eq("id", itemId)
           .single();
+        const dirty = dirtyIds.includes(itemId);
         await supabase
           .from("wardrobe_items")
           .update({
-            last_worn: new Date().toISOString(),
+            last_worn: nowIso,
             wear_count: (cur?.wear_count ?? 0) + 1,
+            ...(dirty ? { is_dirty: true, dirty_since: nowIso } : {}),
           })
           .eq("id", itemId);
       }
+      return dirtyIds.length;
     },
-    onSuccess: () => {
+    onSuccess: (count) => {
       navigator.vibrate?.(8);
-      toast("Noted.");
+      qc.invalidateQueries({ queryKey: ["wardrobe", user?.id] });
+      toast(count > 0 ? `Noted. ${count} piece${count === 1 ? "" : "s"} sent to laundry.` : "Noted.");
+      setWornSheetOpen(false);
+      setDirtySelected(new Set());
     },
   });
 
@@ -164,7 +176,8 @@ function OutfitPage() {
         .from("wardrobe_items")
         .select("id")
         .eq("user_id", user!.id)
-        .eq("archived", false);
+        .eq("archived", false)
+        .eq("is_dirty", false);
       const result = await mockSuggestOutfit({
         user_id: user!.id,
         occasion: outfitQuery.data!.occasion as Occasion,
@@ -331,9 +344,12 @@ function OutfitPage() {
                 loading={shuffleMutation.isPending}
               />
               <ActionBtn
-                label="Worn"
+                label="I wore this"
                 icon={<Check className="h-5 w-5" strokeWidth={1.25} />}
-                onClick={() => wornMutation.mutate()}
+                onClick={() => {
+                  setDirtySelected(new Set(items.map((i) => i.id)));
+                  setWornSheetOpen(true);
+                }}
               />
               <ActionBtn
                 label="Share"
@@ -368,6 +384,104 @@ function OutfitPage() {
           </div>
         </div>
       </div>
+
+      {/* "I wore this" — pick which pieces went into laundry */}
+      <Sheet open={wornSheetOpen} onOpenChange={setWornSheetOpen}>
+        <SheetContent side="bottom" className="max-h-[85vh] overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle className="font-display text-[22px] font-light text-graphite">
+              Which pieces are dirty?
+            </SheetTitle>
+            <SheetDescription>
+              Select what needs washing. They'll move to <strong>Laundry</strong> and be skipped in
+              new looks until you mark them clean.
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="mt-6 space-y-2">
+            <div className="flex justify-between pb-2 text-[12px]">
+              <button
+                type="button"
+                onClick={() => setDirtySelected(new Set(items.map((i) => i.id)))}
+                className="font-mono uppercase tracking-[0.14em] text-graphite hover:underline"
+              >
+                Select all
+              </button>
+              <button
+                type="button"
+                onClick={() => setDirtySelected(new Set())}
+                className="font-mono uppercase tracking-[0.14em] text-ink hover:underline"
+              >
+                Clear
+              </button>
+            </div>
+
+            {items.map((item) => {
+              const checked = dirtySelected.has(item.id);
+              const thumb = item.thumbnail_path
+                ? supabase.storage.from("wardrobe-thumbs").getPublicUrl(item.thumbnail_path).data
+                    .publicUrl
+                : null;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => {
+                    setDirtySelected((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(item.id)) next.delete(item.id);
+                      else next.add(item.id);
+                      return next;
+                    });
+                  }}
+                  className={`flex w-full items-center gap-4 border p-3 text-left transition-colors ${
+                    checked
+                      ? "border-graphite bg-linen"
+                      : "border-linen bg-bone hover:border-ink"
+                  }`}
+                >
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center bg-linen p-1">
+                    {thumb && <img src={thumb} alt="" className="h-full w-full object-contain" />}
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-[14px] text-graphite">{item.subcategory || "—"}</p>
+                    <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink">
+                      {item.category}
+                    </p>
+                  </div>
+                  <span
+                    className={`flex h-5 w-5 items-center justify-center rounded-full border ${
+                      checked ? "border-graphite bg-graphite text-bone" : "border-ink"
+                    }`}
+                  >
+                    {checked && <Check className="h-3 w-3" strokeWidth={2} />}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="mt-8 flex gap-3">
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={() => wornMutation.mutate([])}
+              disabled={wornMutation.isPending}
+            >
+              None — all clean
+            </Button>
+            <Button
+              className="flex-1 bg-graphite text-bone hover:bg-noir"
+              onClick={() => wornMutation.mutate(Array.from(dirtySelected))}
+              disabled={wornMutation.isPending}
+            >
+              {wornMutation.isPending
+                ? "Saving…"
+                : `Send ${dirtySelected.size} to laundry`}
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
     </Shell>
   );
 }

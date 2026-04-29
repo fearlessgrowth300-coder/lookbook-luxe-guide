@@ -28,7 +28,7 @@ export const Route = createFileRoute("/wardrobe")({
   head: () => ({ meta: [{ title: "Wardrobe — Atelier" }] }),
 });
 
-const FILTERS: { id: Category | "all" | "sets"; label: string }[] = [
+const FILTERS: { id: Category | "all" | "sets" | "laundry"; label: string }[] = [
   { id: "all", label: "All" },
   { id: "sets", label: "Sets" },
   { id: "top", label: "Tops" },
@@ -36,6 +36,7 @@ const FILTERS: { id: Category | "all" | "sets"; label: string }[] = [
   { id: "outerwear", label: "Outerwear" },
   { id: "shoes", label: "Shoes" },
   { id: "accessory", label: "Accessories" },
+  { id: "laundry", label: "Laundry" },
 ];
 
 const CATEGORY_OPTIONS: { id: Category; label: string }[] = [
@@ -85,6 +86,8 @@ interface WardrobeItem {
   formality_score: number | null;
   set_id: string | null;
   set_role: string | null;
+  is_dirty: boolean | null;
+  dirty_since: string | null;
 }
 
 interface GarmentSet {
@@ -116,7 +119,7 @@ function WardrobePage() {
   const { user } = useAuth();
   const qc = useQueryClient();
   const { uploadOpen, setUploadOpen, selectedItemIds, toggleSelect, clearSelection } = useUI();
-  const [filter, setFilter] = useState<Category | "all" | "sets">("all");
+  const [filter, setFilter] = useState<Category | "all" | "sets" | "laundry">("all");
   const [pendingUpload, setPendingUpload] = useState<PendingUploadItem | null>(null);
   const [editItemId, setEditItemId] = useState<string | null>(null);
   const [bannerDismissed, setBannerDismissed] = useState(false);
@@ -131,7 +134,7 @@ function WardrobePage() {
       const { data, error } = await supabase
         .from("wardrobe_items")
         .select(
-          "id, raw_path, enhanced_path, thumbnail_path, placeholder, category, subcategory, color_primary, formality_score, set_id, set_role",
+          "id, raw_path, enhanced_path, thumbnail_path, placeholder, category, subcategory, color_primary, formality_score, set_id, set_role, is_dirty, dirty_since",
         )
         .eq("user_id", user!.id)
         .eq("archived", false)
@@ -226,7 +229,13 @@ function WardrobePage() {
     | { kind: "item"; item: WardrobeItem }
     | { kind: "set"; set: GarmentSet; pieces: WardrobeItem[] };
 
+  const dirtyItems = useMemo(() => items.filter((i) => i.is_dirty), [items]);
+  const cleanItems = useMemo(() => items.filter((i) => !i.is_dirty), [items]);
+
   const filtered: DisplayEntry[] = useMemo(() => {
+    if (filter === "laundry") {
+      return dirtyItems.map((item) => ({ kind: "item" as const, item }));
+    }
     if (filter === "sets") {
       return sets.map((s) => ({
         kind: "set" as const,
@@ -235,7 +244,7 @@ function WardrobePage() {
       }));
     }
     if (filter === "all") {
-      const standalonePart: DisplayEntry[] = items
+      const standalonePart: DisplayEntry[] = cleanItems
         .filter((i) => !i.set_id)
         .map((item) => ({ kind: "item" as const, item }));
       const setPart: DisplayEntry[] = sets.map((s) => ({
@@ -245,11 +254,11 @@ function WardrobePage() {
       }));
       return [...setPart, ...standalonePart];
     }
-    // Category filters: only show separable / standalone pieces
+    // Category filters: only show separable / standalone pieces (clean only)
     return standaloneEligible
-      .filter((i) => i.category === filter)
+      .filter((i) => !i.is_dirty && i.category === filter)
       .map((item) => ({ kind: "item" as const, item }));
-  }, [filter, items, sets, setMembers, standaloneEligible]);
+  }, [filter, cleanItems, dirtyItems, sets, setMembers, standaloneEligible]);
 
   const visibleItems = useMemo(
     () =>
@@ -325,6 +334,7 @@ function WardrobePage() {
           <div className="flex flex-wrap gap-2 overflow-x-auto">
             {FILTERS.map(({ id, label }) => {
               const active = filter === id;
+              const badge = id === "laundry" && dirtyItems.length > 0 ? dirtyItems.length : null;
               return (
                 <motion.button
                   {...tap}
@@ -337,6 +347,9 @@ function WardrobePage() {
                   }`}
                 >
                   {label}
+                  {badge !== null && (
+                    <span className="ml-2 rounded-full bg-bone/30 px-1.5 py-0.5 text-[9px]">{badge}</span>
+                  )}
                 </motion.button>
               );
             })}
@@ -750,6 +763,35 @@ function Tile({
             <RefreshCw className="h-3.5 w-3.5" strokeWidth={1.5} />
           )}
         </button>
+      )}
+
+      {/* Dirty badge + "Washed" toggle */}
+      {item?.is_dirty && !pending && (
+        <>
+          <div className="absolute left-2 top-2 z-10 rounded-full bg-graphite px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.14em] text-bone">
+            Dirty
+          </div>
+          <button
+            type="button"
+            onClick={async (e) => {
+              e.stopPropagation();
+              if (!user) return;
+              const { error } = await supabase
+                .from("wardrobe_items")
+                .update({ is_dirty: false, dirty_since: null })
+                .eq("id", item.id);
+              if (error) {
+                toast.error("Couldn't mark as washed");
+                return;
+              }
+              toast.success("Back in the wardrobe");
+              qc.invalidateQueries({ queryKey: ["wardrobe", user.id] });
+            }}
+            className="absolute bottom-2 right-2 z-10 rounded-full border border-ink/20 bg-bone/95 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-graphite shadow-sm transition-colors hover:bg-graphite hover:text-bone"
+          >
+            Washed
+          </button>
+        </>
       )}
 
       {/* Meta bar */}
