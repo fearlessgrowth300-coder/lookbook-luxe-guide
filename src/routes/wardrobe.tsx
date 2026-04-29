@@ -1139,6 +1139,59 @@ function UploadSheet({
   const onPickGallery = () => galleryInputRef.current?.click();
   const onPickCamera = () => cameraInputRef.current?.click();
 
+  // Paste image from clipboard (Cmd/Ctrl+V or "Paste" button).
+  // Tries the async Clipboard API first; falls back to a hidden contentEditable
+  // element + paste event for browsers without clipboard.read() permission.
+  const onPasteImage = async () => {
+    try {
+      if (navigator.clipboard && "read" in navigator.clipboard) {
+        const clipItems = await navigator.clipboard.read();
+        const files: File[] = [];
+        for (const ci of clipItems) {
+          const imgType = ci.types.find((t) => t.startsWith("image/"));
+          if (!imgType) continue;
+          const blob = await ci.getType(imgType);
+          const ext = imgType.split("/")[1] || "png";
+          files.push(
+            new File([blob], `pasted-${Date.now()}.${ext}`, { type: imgType }),
+          );
+        }
+        if (files.length) {
+          await onFilesPicked(files);
+          return;
+        }
+        toast.error("No image in clipboard. Copy one first.");
+      } else {
+        toast.error("Paste not supported here — try Cmd/Ctrl + V");
+      }
+    } catch (err) {
+      console.warn("[paste-image] failed", err);
+      toast.error("Couldn't read clipboard. Try Cmd/Ctrl + V instead.");
+    }
+  };
+
+  // Listen for keyboard paste events anywhere in the sheet
+  useEffect(() => {
+    const handler = async (e: ClipboardEvent) => {
+      const dt = e.clipboardData;
+      if (!dt) return;
+      const files: File[] = [];
+      for (const it of Array.from(dt.items)) {
+        if (it.kind === "file" && it.type.startsWith("image/")) {
+          const f = it.getAsFile();
+          if (f) files.push(f);
+        }
+      }
+      if (files.length) {
+        e.preventDefault();
+        await onFilesPicked(files);
+      }
+    };
+    window.addEventListener("paste", handler);
+    return () => window.removeEventListener("paste", handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const readyCount = items.filter((it) => it.status === "ready" && it.category).length;
   const analyzingCount = items.filter(
     (it) => it.status === "analyzing" || it.status === "decoding",
