@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { motion } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Bookmark, Shuffle, Check, Share2 } from "lucide-react";
 import { toast } from "sonner";
 import { Shell } from "@/components/Shell";
@@ -12,6 +12,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { ease, dur, tap } from "@/lib/motion";
 import { mockSuggestOutfit, type Occasion } from "@/server/mock-ai";
 import { renderOutfit } from "@/server/functions/renderOutfit";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/outfit/$id")({
   component: () => (
