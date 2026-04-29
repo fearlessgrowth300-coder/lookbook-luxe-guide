@@ -28,7 +28,7 @@ export const Route = createFileRoute("/wardrobe")({
   head: () => ({ meta: [{ title: "Wardrobe — Atelier" }] }),
 });
 
-const FILTERS: { id: Category | "all" | "sets"; label: string }[] = [
+const FILTERS: { id: Category | "all" | "sets" | "laundry"; label: string }[] = [
   { id: "all", label: "All" },
   { id: "sets", label: "Sets" },
   { id: "top", label: "Tops" },
@@ -36,6 +36,7 @@ const FILTERS: { id: Category | "all" | "sets"; label: string }[] = [
   { id: "outerwear", label: "Outerwear" },
   { id: "shoes", label: "Shoes" },
   { id: "accessory", label: "Accessories" },
+  { id: "laundry", label: "Laundry" },
 ];
 
 const CATEGORY_OPTIONS: { id: Category; label: string }[] = [
