@@ -229,7 +229,13 @@ function WardrobePage() {
     | { kind: "item"; item: WardrobeItem }
     | { kind: "set"; set: GarmentSet; pieces: WardrobeItem[] };
 
+  const dirtyItems = useMemo(() => items.filter((i) => i.is_dirty), [items]);
+  const cleanItems = useMemo(() => items.filter((i) => !i.is_dirty), [items]);
+
   const filtered: DisplayEntry[] = useMemo(() => {
+    if (filter === "laundry") {
+      return dirtyItems.map((item) => ({ kind: "item" as const, item }));
+    }
     if (filter === "sets") {
       return sets.map((s) => ({
         kind: "set" as const,
@@ -238,7 +244,7 @@ function WardrobePage() {
       }));
     }
     if (filter === "all") {
-      const standalonePart: DisplayEntry[] = items
+      const standalonePart: DisplayEntry[] = cleanItems
         .filter((i) => !i.set_id)
         .map((item) => ({ kind: "item" as const, item }));
       const setPart: DisplayEntry[] = sets.map((s) => ({
@@ -248,11 +254,11 @@ function WardrobePage() {
       }));
       return [...setPart, ...standalonePart];
     }
-    // Category filters: only show separable / standalone pieces
+    // Category filters: only show separable / standalone pieces (clean only)
     return standaloneEligible
-      .filter((i) => i.category === filter)
+      .filter((i) => !i.is_dirty && i.category === filter)
       .map((item) => ({ kind: "item" as const, item }));
-  }, [filter, items, sets, setMembers, standaloneEligible]);
+  }, [filter, cleanItems, dirtyItems, sets, setMembers, standaloneEligible]);
 
   const visibleItems = useMemo(
     () =>
