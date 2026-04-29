@@ -303,9 +303,11 @@ export type Database = {
           color_primary: string | null
           color_secondary: string | null
           created_at: string | null
+          dirty_since: string | null
           enhanced_path: string | null
           formality_score: number | null
           id: string
+          is_dirty: boolean
           last_worn: string | null
           material: string | null
           placeholder: string | null
@@ -325,9 +327,11 @@ export type Database = {
           color_primary?: string | null
           color_secondary?: string | null
           created_at?: string | null
+          dirty_since?: string | null
           enhanced_path?: string | null
           formality_score?: number | null
           id?: string
+          is_dirty?: boolean
           last_worn?: string | null
           material?: string | null
           placeholder?: string | null
@@ -347,9 +351,11 @@ export type Database = {
           color_primary?: string | null
           color_secondary?: string | null
           created_at?: string | null
+          dirty_since?: string | null
           enhanced_path?: string | null
           formality_score?: number | null
           id?: string
+          is_dirty?: boolean
           last_worn?: string | null
           material?: string | null
           placeholder?: string | null
