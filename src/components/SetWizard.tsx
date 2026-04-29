@@ -405,7 +405,7 @@ export function SetWizard({ onClose }: { onClose: () => void }) {
           ref={fileInputRef}
           type="file"
           multiple
-          accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+          accept="image/*"
           style={{ position: "absolute", opacity: 0, pointerEvents: "none", width: 1, height: 1 }}
           onChange={(e) => {
             if (e.target.files && e.target.files.length > 0) {

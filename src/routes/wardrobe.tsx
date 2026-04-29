@@ -887,8 +887,9 @@ function UploadSheet({
 
       const res = await analyze({ data: { image_url: dataUrl } });
       if (!res.ok) {
-        // AI failed — keep the item but require manual category.
-        updateItem(seed.id, { status: "ready" });
+        // AI failed — auto-assign a sensible default so the item is still
+        // saveable. User can always change it from the edit sheet.
+        updateItem(seed.id, { status: "ready", category: "top", subcategory: "item" });
         if (res.error === "rate_limited" || res.error === "payment_required") {
           toast.error(res.message);
         }
@@ -910,8 +911,8 @@ function UploadSheet({
       });
     } catch (err) {
       console.error("[analyze failed]", err);
-      // Don't block the user — they can still manually categorize and save.
-      updateItem(seed.id, { status: "ready" });
+      // Don't block the user — auto-assign a default category so save works.
+      updateItem(seed.id, { status: "ready", category: "top", subcategory: "item" });
     }
   };
 
@@ -1091,7 +1092,7 @@ function UploadSheet({
         <input
           ref={galleryInputRef}
           type="file"
-          accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+          accept="image/*"
           multiple
           style={{ position: "absolute", opacity: 0, pointerEvents: "none", width: 1, height: 1 }}
           onChange={(e) => {
@@ -1102,7 +1103,7 @@ function UploadSheet({
         <input
           ref={dropInputRef}
           type="file"
-          accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+          accept="image/*"
           multiple
           style={{ position: "absolute", opacity: 0, pointerEvents: "none", width: 1, height: 1 }}
           onChange={(e) => {
