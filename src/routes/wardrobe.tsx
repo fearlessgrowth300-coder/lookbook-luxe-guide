@@ -730,6 +730,28 @@ function Tile({
         </div>
       )}
 
+      {/* Background-removal retry — appears when the cutout never landed.
+          Auto-retries once silently per session; this button is the manual fallback. */}
+      {item && needsBgRetry && !pending && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            retryBgRemoval();
+          }}
+          disabled={retrying}
+          title={retrying ? "Removing background…" : "Retry background removal"}
+          aria-label={retrying ? "Removing background" : "Retry background removal"}
+          className="absolute right-2 top-2 z-10 flex h-7 w-7 items-center justify-center border border-ink/20 bg-bone/95 text-graphite shadow-sm transition-colors hover:bg-graphite hover:text-bone disabled:opacity-60"
+        >
+          {retrying ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.5} />
+          ) : (
+            <RefreshCw className="h-3.5 w-3.5" strokeWidth={1.5} />
+          )}
+        </button>
+      )}
+
       {/* Meta bar */}
       <div
         className="absolute inset-x-0 bottom-0 translate-y-full bg-bone/95 px-3 py-2 transition-transform group-hover:translate-y-0"
