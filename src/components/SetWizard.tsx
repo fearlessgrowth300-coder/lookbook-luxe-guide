@@ -537,6 +537,20 @@ export function SetWizard({ onClose }: { onClose: () => void }) {
                       </>
                     )}
                   </motion.button>
+
+                  <motion.button
+                    {...tap}
+                    onClick={onPasteImage}
+                    className="flex aspect-[3/4] flex-col items-center justify-center gap-2 border border-dashed border-ink/40 bg-linen/30 text-ink transition-colors hover:border-graphite hover:bg-linen/50"
+                  >
+                    <ClipboardPaste className="h-7 w-7" strokeWidth={1.25} />
+                    <span className="font-mono text-[10px] uppercase tracking-[0.16em]">
+                      Paste image
+                    </span>
+                    <span className="font-mono text-[9px] tracking-[0.14em] text-ink/60">
+                      Cmd/Ctrl + V
+                    </span>
+                  </motion.button>
                 </div>
 
                 {pieces.length > 0 && allReady && readyCount > 0 && (
