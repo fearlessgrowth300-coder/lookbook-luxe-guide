@@ -334,6 +334,7 @@ function WardrobePage() {
           <div className="flex flex-wrap gap-2 overflow-x-auto">
             {FILTERS.map(({ id, label }) => {
               const active = filter === id;
+              const badge = id === "laundry" && dirtyItems.length > 0 ? dirtyItems.length : null;
               return (
                 <motion.button
                   {...tap}
@@ -346,6 +347,9 @@ function WardrobePage() {
                   }`}
                 >
                   {label}
+                  {badge !== null && (
+                    <span className="ml-2 rounded-full bg-bone/30 px-1.5 py-0.5 text-[9px]">{badge}</span>
+                  )}
                 </motion.button>
               );
             })}
