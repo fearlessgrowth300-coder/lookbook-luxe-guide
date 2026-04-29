@@ -117,7 +117,7 @@ function WardrobePage() {
   const { user } = useAuth();
   const qc = useQueryClient();
   const { uploadOpen, setUploadOpen, selectedItemIds, toggleSelect, clearSelection } = useUI();
-  const [filter, setFilter] = useState<Category | "all" | "sets">("all");
+  const [filter, setFilter] = useState<Category | "all" | "sets" | "laundry">("all");
   const [pendingUpload, setPendingUpload] = useState<PendingUploadItem | null>(null);
   const [editItemId, setEditItemId] = useState<string | null>(null);
   const [bannerDismissed, setBannerDismissed] = useState(false);
