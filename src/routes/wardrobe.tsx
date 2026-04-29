@@ -1280,7 +1280,7 @@ function UploadSheet({
         <div className="flex-1 overflow-y-auto px-6 py-6">
           {items.length === 0 ? (
             <>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
                 <motion.button
                   {...tap}
                   onClick={onPickCamera}
@@ -1299,6 +1299,16 @@ function UploadSheet({
                   <ImageIcon className="h-7 w-7 text-graphite" strokeWidth={1.25} />
                   <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-graphite">
                     Choose multiple
+                  </span>
+                </motion.button>
+                <motion.button
+                  {...tap}
+                  onClick={onPasteImage}
+                  className="col-span-2 flex flex-col items-center justify-center gap-3 border border-ink/40 bg-linen/30 py-10 transition-colors hover:border-graphite hover:bg-linen/60 sm:col-span-1"
+                >
+                  <ClipboardPaste className="h-7 w-7 text-graphite" strokeWidth={1.25} />
+                  <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-graphite">
+                    Paste image
                   </span>
                 </motion.button>
               </div>
