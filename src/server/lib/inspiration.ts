@@ -144,10 +144,13 @@ async function scrapePinterest(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        // bebity/pinterest-scraper input shape
+        // easyapi/pinterest-search-scraper input shape
+        query,
+        filter: "all",
+        limit,
+        // Backwards-compatible fields some other actors use
         searchQueries: [query],
         resultsPerPage: limit,
-        // Backwards-compatible fields some other actors use
         startUrls: [
           { url: `https://www.pinterest.com/search/pins/?q=${encodeURIComponent(query)}` },
         ],
