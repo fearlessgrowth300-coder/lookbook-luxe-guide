@@ -15,7 +15,7 @@
 // writes garment_sets + wardrobe_items rows linked by set_id.
 import { motion, AnimatePresence } from "framer-motion";
 import { useEffect, useRef, useState, useMemo } from "react";
-import { X, Camera, Check, ArrowLeft, Plus, Sparkles, Loader2 } from "lucide-react";
+import { X, Camera, Check, ArrowLeft, Plus, Sparkles, Loader2, ClipboardPaste } from "lucide-react";
 import { toast } from "sonner";
 import { useServerFn } from "@tanstack/react-start";
 import { useQueryClient } from "@tanstack/react-query";
@@ -165,8 +165,8 @@ export function SetWizard({ onClose }: { onClose: () => void }) {
     return canvas.toDataURL("image/jpeg", 0.78);
   };
 
-  const handleFiles = async (files: FileList) => {
-    const list = Array.from(files);
+  const handleFiles = async (files: FileList | File[]) => {
+    const list = Array.from(files as ArrayLike<File>);
     for (const file of list) {
       const id = crypto.randomUUID();
       let preview: string | null = null;
@@ -237,6 +237,54 @@ export function SetWizard({ onClose }: { onClose: () => void }) {
   };
 
   const triggerPick = () => fileInputRef.current?.click();
+
+  const onPasteImage = async () => {
+    try {
+      if (!navigator.clipboard?.read) {
+        toast.error("Paste not supported", { description: "Try Cmd/Ctrl + V instead." });
+        return;
+      }
+      const items = await navigator.clipboard.read();
+      const files: File[] = [];
+      for (const item of items) {
+        const imgType = item.types.find((t) => t.startsWith("image/"));
+        if (!imgType) continue;
+        const blob = await item.getType(imgType);
+        const ext = imgType.split("/")[1] || "png";
+        files.push(new File([blob], `pasted-${Date.now()}.${ext}`, { type: imgType }));
+      }
+      if (!files.length) {
+        toast.error("No image in clipboard");
+        return;
+      }
+      await handleFiles(files);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Paste failed";
+      toast.error("Couldn't paste", { description: msg.slice(0, 120) });
+    }
+  };
+
+  // Cmd/Ctrl + V global paste listener while wizard is open
+  useEffect(() => {
+    const handler = async (e: ClipboardEvent) => {
+      const dt = e.clipboardData;
+      if (!dt) return;
+      const files: File[] = [];
+      for (const it of Array.from(dt.items)) {
+        if (it.kind === "file" && it.type.startsWith("image/")) {
+          const f = it.getAsFile();
+          if (f) files.push(f);
+        }
+      }
+      if (files.length) {
+        e.preventDefault();
+        await handleFiles(files);
+      }
+    };
+    window.addEventListener("paste", handler);
+    return () => window.removeEventListener("paste", handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleSave = async () => {
     if (!user || saving) return;
@@ -488,6 +536,20 @@ export function SetWizard({ onClose }: { onClose: () => void }) {
                         </span>
                       </>
                     )}
+                  </motion.button>
+
+                  <motion.button
+                    {...tap}
+                    onClick={onPasteImage}
+                    className="flex aspect-[3/4] flex-col items-center justify-center gap-2 border border-dashed border-ink/40 bg-linen/30 text-ink transition-colors hover:border-graphite hover:bg-linen/50"
+                  >
+                    <ClipboardPaste className="h-7 w-7" strokeWidth={1.25} />
+                    <span className="font-mono text-[10px] uppercase tracking-[0.16em]">
+                      Paste image
+                    </span>
+                    <span className="font-mono text-[9px] tracking-[0.14em] text-ink/60">
+                      Cmd/Ctrl + V
+                    </span>
                   </motion.button>
                 </div>
 
