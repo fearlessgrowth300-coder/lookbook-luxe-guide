@@ -887,8 +887,9 @@ function UploadSheet({
 
       const res = await analyze({ data: { image_url: dataUrl } });
       if (!res.ok) {
-        // AI failed — keep the item but require manual category.
-        updateItem(seed.id, { status: "ready" });
+        // AI failed — auto-assign a sensible default so the item is still
+        // saveable. User can always change it from the edit sheet.
+        updateItem(seed.id, { status: "ready", category: "top", subcategory: "item" });
         if (res.error === "rate_limited" || res.error === "payment_required") {
           toast.error(res.message);
         }
