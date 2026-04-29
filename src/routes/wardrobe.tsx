@@ -1340,7 +1340,7 @@ function UploadSheet({
                 JPG · PNG · WEBP · HEIC · 10 MB EACH
               </p>
               <p className="mt-2 text-center font-mono text-[10px] uppercase tracking-[0.16em] text-ink/60">
-                AI will categorize each piece automatically
+                AI categorizes each piece · Tip: Cmd/Ctrl + V to paste
               </p>
             </>
           ) : (
