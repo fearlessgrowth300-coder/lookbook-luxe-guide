@@ -384,6 +384,104 @@ function OutfitPage() {
           </div>
         </div>
       </div>
+
+      {/* "I wore this" — pick which pieces went into laundry */}
+      <Sheet open={wornSheetOpen} onOpenChange={setWornSheetOpen}>
+        <SheetContent side="bottom" className="max-h-[85vh] overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle className="font-display text-[22px] font-light text-graphite">
+              Which pieces are dirty?
+            </SheetTitle>
+            <SheetDescription>
+              Select what needs washing. They'll move to <strong>Laundry</strong> and be skipped in
+              new looks until you mark them clean.
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="mt-6 space-y-2">
+            <div className="flex justify-between pb-2 text-[12px]">
+              <button
+                type="button"
+                onClick={() => setDirtySelected(new Set(items.map((i) => i.id)))}
+                className="font-mono uppercase tracking-[0.14em] text-graphite hover:underline"
+              >
+                Select all
+              </button>
+              <button
+                type="button"
+                onClick={() => setDirtySelected(new Set())}
+                className="font-mono uppercase tracking-[0.14em] text-ink hover:underline"
+              >
+                Clear
+              </button>
+            </div>
+
+            {items.map((item) => {
+              const checked = dirtySelected.has(item.id);
+              const thumb = item.thumbnail_path
+                ? supabase.storage.from("wardrobe-thumbs").getPublicUrl(item.thumbnail_path).data
+                    .publicUrl
+                : null;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => {
+                    setDirtySelected((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(item.id)) next.delete(item.id);
+                      else next.add(item.id);
+                      return next;
+                    });
+                  }}
+                  className={`flex w-full items-center gap-4 border p-3 text-left transition-colors ${
+                    checked
+                      ? "border-graphite bg-linen"
+                      : "border-linen bg-bone hover:border-ink"
+                  }`}
+                >
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center bg-linen p-1">
+                    {thumb && <img src={thumb} alt="" className="h-full w-full object-contain" />}
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-[14px] text-graphite">{item.subcategory || "—"}</p>
+                    <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink">
+                      {item.category}
+                    </p>
+                  </div>
+                  <span
+                    className={`flex h-5 w-5 items-center justify-center rounded-full border ${
+                      checked ? "border-graphite bg-graphite text-bone" : "border-ink"
+                    }`}
+                  >
+                    {checked && <Check className="h-3 w-3" strokeWidth={2} />}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="mt-8 flex gap-3">
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={() => wornMutation.mutate([])}
+              disabled={wornMutation.isPending}
+            >
+              None — all clean
+            </Button>
+            <Button
+              className="flex-1 bg-graphite text-bone hover:bg-noir"
+              onClick={() => wornMutation.mutate(Array.from(dirtySelected))}
+              disabled={wornMutation.isPending}
+            >
+              {wornMutation.isPending
+                ? "Saving…"
+                : `Send ${dirtySelected.size} to laundry`}
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
     </Shell>
   );
 }
