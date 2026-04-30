@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { motion } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { Bookmark, Shuffle, Check, Share2 } from "lucide-react";
+import { Bookmark, Shuffle, Check, Share2, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import { Shell } from "@/components/Shell";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
@@ -231,9 +231,28 @@ function OutfitPage() {
         <div className="grid gap-8">
           {/* Composition view — model wearing the outfit + callout labels */}
           <div className="relative flex min-h-[92vh] flex-col bg-bone">
-            <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-ink">
-              LOOK · {String(seq).padStart(3, "0")}
-            </p>
+            <div className="flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => {
+                  if (o.batch_id) {
+                    navigate({ to: "/today", search: { batch: o.batch_id } });
+                  } else if (window.history.length > 1) {
+                    window.history.back();
+                  } else {
+                    navigate({ to: "/today" });
+                  }
+                }}
+                className="inline-flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.2em] text-graphite transition-opacity hover:opacity-60"
+                aria-label="Back"
+              >
+                <ArrowLeft className="h-3.5 w-3.5" strokeWidth={1.5} />
+                Back
+              </button>
+              <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-ink">
+                LOOK · {String(seq).padStart(3, "0")}
+              </p>
+            </div>
 
             <motion.div
               key={o.id}
