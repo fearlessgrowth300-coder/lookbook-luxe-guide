@@ -43,6 +43,8 @@ interface SuggestInput {
   custom_occasion?: string;
   /** Optional user-provided context describing the occasion in their words. */
   note?: string;
+  /** Optional client-provided list of recent batch ids to also avoid. */
+  exclude_batch_ids?: string[];
 }
 
 const FORMALITY_RANGE: Record<Occasion, [number, number]> = {
