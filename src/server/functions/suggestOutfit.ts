@@ -158,6 +158,7 @@ interface HeuristicLookArgs {
   candidates: CandidateRow[];
   occasion: Occasion;
   temp_c: number;
+  priorSignatures?: string[][];
 }
 
 function buildUserPrompt(args: {
