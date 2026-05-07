@@ -925,10 +925,23 @@ export const suggestOutfit = createServerFn({ method: "POST" })
       });
 
       const strictlyValidLooks = looks.filter((_, idx) => validationResults[idx]?.result.ok);
+
+      // Filter out looks that overlap a prior signature by 2+ items, unless
+      // doing so would leave us with nothing. Tiny wardrobes get a pass.
+      const freshLooks = strictlyValidLooks.filter(
+        (look) => maxPriorOverlap(look.item_ids) < 2,
+      );
+      const usableLooks =
+        freshLooks.length >= 2 || (freshLooks.length >= 1 && strictlyValidLooks.length === freshLooks.length)
+          ? freshLooks
+          : freshLooks.length > 0 && attempt + 1 >= MAX_AI_ATTEMPTS
+            ? freshLooks
+            : strictlyValidLooks;
+
       const distinctValidLooks =
-        strictlyValidLooks.length >= 2
-          ? pickMostDistinctSubset(strictlyValidLooks, 3)
-          : strictlyValidLooks;
+        usableLooks.length >= 2
+          ? pickMostDistinctSubset(usableLooks, 3)
+          : usableLooks;
 
       if (distinctValidLooks.length >= 3) {
         validLooks = distinctValidLooks.slice(0, 3);
@@ -940,19 +953,19 @@ export const suggestOutfit = createServerFn({ method: "POST" })
         break;
       }
 
-      if (strictlyValidLooks.length === 1) {
-        validLooks = strictlyValidLooks;
+      if (usableLooks.length === 1 && attempt + 1 >= MAX_AI_ATTEMPTS) {
+        validLooks = usableLooks;
         break;
       }
 
-      console.error("[suggestOutfit] All looks invalid. Reasons:", reasons);
+      console.error("[suggestOutfit] All looks invalid or repeated. Reasons:", reasons);
 
-      if (attempt === 1) {
-        lastReasons = reasons.length ? reasons : ["incomplete_output"];
-        break;
+      // Set feedback so the next attempt knows what went wrong.
+      const feedbackReasons = [...reasons];
+      if (strictlyValidLooks.length > 0 && freshLooks.length === 0) {
+        feedbackReasons.push("looks_repeated_priors");
       }
-
-      lastReasons = reasons.length ? reasons : ["incomplete_output"];
+      lastReasons = feedbackReasons.length ? feedbackReasons : ["incomplete_output"];
     }
 
     if (validLooks.length === 0) {
