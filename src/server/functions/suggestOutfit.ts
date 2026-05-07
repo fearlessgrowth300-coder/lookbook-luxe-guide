@@ -519,6 +519,18 @@ function buildHeuristicLooks(args: HeuristicLookArgs): LookProposal[] {
   const outerwear = shortlist.filter((item) => item.category === "outerwear");
   const outerwearOptions = args.temp_c < 15 ? [undefined, ...outerwear] : [undefined];
 
+  // Per-item penalty: items appearing in more recent prior signatures get
+  // larger penalties (weighted by recency — most recent prior counts most).
+  const priorItemPenalty = new Map<string, number>();
+  const priorSigs = args.priorSignatures ?? [];
+  priorSigs.forEach((sig, idx) => {
+    // weight: most recent prior = ~12, decays to ~3 for the 10th prior
+    const weight = Math.max(3, 12 - idx);
+    for (const id of sig) {
+      priorItemPenalty.set(id, (priorItemPenalty.get(id) ?? 0) + weight);
+    }
+  });
+
   const combos = new Map<string, { items: CandidateRow[]; score: number }>();
   const rememberCombo = (items: CandidateRow[]) => {
     const proposal: LookProposal = {
@@ -529,7 +541,7 @@ function buildHeuristicLooks(args: HeuristicLookArgs): LookProposal[] {
     const validation = validateLook(proposal, shortlist, args.temp_c);
     if (!validation.ok) return;
     const key = proposal.item_ids.slice().sort().join(":");
-    const score = comboScore(items, targetFormality);
+    const score = comboScore(items, targetFormality, priorItemPenalty);
     const existing = combos.get(key);
     if (!existing || score > existing.score) {
       combos.set(key, { items, score });
@@ -554,7 +566,20 @@ function buildHeuristicLooks(args: HeuristicLookArgs): LookProposal[] {
     }
   }
 
-  const sorted = Array.from(combos.values()).sort((a, b) => b.score - a.score);
+  // Reject combos that overlap any prior signature by 2+ items, but only if
+  // there are enough non-overlapping combos available — otherwise fall back
+  // to the full pool so we still return something.
+  const overlapsPrior = (ids: string[]) =>
+    priorSigs.some((sig) => {
+      const set = new Set(sig);
+      const overlap = ids.filter((id) => set.has(id)).length;
+      return overlap >= 2;
+    });
+
+  const allCombos = Array.from(combos.values()).sort((a, b) => b.score - a.score);
+  const fresh = allCombos.filter((c) => !overlapsPrior(c.items.map((i) => i.id)));
+  const sorted = fresh.length >= 3 ? fresh : fresh.length > 0 ? fresh : allCombos;
+
   const chosen: { items: CandidateRow[]; score: number }[] = [];
   for (const combo of sorted) {
     const proposal = { item_ids: combo.items.map((item) => item.id), name: "", rationale: "" };
