@@ -172,6 +172,7 @@ function buildUserPrompt(args: {
   customOccasion?: string;
   note?: string;
   inspirationFragment?: string;
+  priorSignatures?: string[][];
 }) {
   const excludeClause = args.excludeBatchId
     ? `\n- The user already saw a prior set; compose genuinely different looks this time.`
@@ -190,11 +191,19 @@ function buildUserPrompt(args: {
     ? `\n- User's notes about the occasion: "${args.note}"\n  Read these carefully and let them shape the looks. They override generic occasion assumptions.`
     : "";
 
+  const priorClause =
+    args.priorSignatures && args.priorSignatures.length > 0
+      ? `\n\nYou recently proposed these looks for this occasion. DO NOT repeat them, and DO NOT propose any look that shares more than 1 item with any of them. Rotate the wardrobe — pick different anchors and different shoes when possible:\n${args.priorSignatures
+          .slice(0, 10)
+          .map((sig, i) => `- Prior ${i + 1}: [${sig.join(", ")}]`)
+          .join("\n")}`
+      : "";
+
   return `Compose THREE looks for:
 - Occasion: ${occasionLine}
 - Temperature: ${args.temp_c}°C
 - Mood preference: ${args.mood ?? "not specified"}
-- User's style archetype: ${args.archetype}${noteClause}${excludeClause}
+- User's style archetype: ${args.archetype}${noteClause}${excludeClause}${priorClause}
 
 Eligible wardrobe:
 ${JSON.stringify(args.candidateList, null, 2)}
