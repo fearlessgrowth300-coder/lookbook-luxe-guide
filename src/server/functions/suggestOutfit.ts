@@ -798,7 +798,18 @@ export const suggestOutfit = createServerFn({ method: "POST" })
     let validLooks: LookProposal[] = [];
     let lastReasons: string[] = [];
     const batch_id = crypto.randomUUID();
-    const MAX_AI_ATTEMPTS = 1;
+    const MAX_AI_ATTEMPTS = 2;
+
+    // Helper: count overlap between a look and the worst-matching prior signature.
+    const maxPriorOverlap = (ids: string[]) => {
+      let max = 0;
+      for (const sig of priorSignatures) {
+        const set = new Set(sig);
+        const overlap = ids.filter((id) => set.has(id)).length;
+        if (overlap > max) max = overlap;
+      }
+      return max;
+    };
 
     for (let attempt = 0; attempt < MAX_AI_ATTEMPTS; attempt++) {
       const relaxed = attempt === 1 && lastReasons.length > 0;
@@ -809,11 +820,12 @@ export const suggestOutfit = createServerFn({ method: "POST" })
         archetype,
         excludeBatchId: data.exclude_batch_id,
         candidateList,
-        feedback: attempt === 1 ? lastReasons.join(", ") : undefined,
+        feedback: attempt >= 1 ? lastReasons.join(", ") : undefined,
         relaxed,
         customOccasion: data.custom_occasion,
         note: data.note,
         inspirationFragment,
+        priorSignatures,
       });
 
       let raw: string;
