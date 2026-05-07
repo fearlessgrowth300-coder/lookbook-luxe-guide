@@ -688,6 +688,28 @@ export const suggestOutfit = createServerFn({ method: "POST" })
       .maybeSingle();
     const archetype = profile?.style_archetype ?? "classic";
 
+    // 3b. Recent looks for this occasion (last 7 days, up to 10).
+    //     Used to avoid repeating the same composition each time the user
+    //     taps Generate.
+    const sevenDaysAgo = new Date(Date.now() - 7 * 86_400_000).toISOString();
+    const { data: recentOutfits } = await supabase
+      .from("outfits")
+      .select("item_ids, batch_id, generated_at")
+      .eq("user_id", userId)
+      .eq("occasion", data.occasion)
+      .gte("generated_at", sevenDaysAgo)
+      .order("generated_at", { ascending: false })
+      .limit(10);
+    const priorSignatures: string[][] = (recentOutfits ?? [])
+      .map((row) => (Array.isArray(row.item_ids) ? (row.item_ids as string[]) : []))
+      .filter((sig) => sig.length > 0);
+    console.log(
+      "[suggestOutfit] prior signatures:",
+      priorSignatures.length,
+      "for occasion",
+      data.occasion,
+    );
+
     // 4. Hard filters
     const [floor, ceiling] = FORMALITY_RANGE[data.occasion];
     const seasons = seasonsForTemp(data.temp_c);
