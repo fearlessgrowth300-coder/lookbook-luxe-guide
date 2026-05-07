@@ -973,6 +973,7 @@ export const suggestOutfit = createServerFn({ method: "POST" })
         candidates: candidatePool,
         occasion: data.occasion,
         temp_c: data.temp_c,
+        priorSignatures,
       });
 
       if (fallbackLooks.length > 0) {
