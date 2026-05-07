@@ -43,6 +43,8 @@ interface SuggestInput {
   custom_occasion?: string;
   /** Optional user-provided context describing the occasion in their words. */
   note?: string;
+  /** Optional client-provided list of recent batch ids to also avoid. */
+  exclude_batch_ids?: string[];
 }
 
 const FORMALITY_RANGE: Record<Occasion, [number, number]> = {
@@ -156,6 +158,7 @@ interface HeuristicLookArgs {
   candidates: CandidateRow[];
   occasion: Occasion;
   temp_c: number;
+  priorSignatures?: string[][];
 }
 
 function buildUserPrompt(args: {
@@ -170,6 +173,7 @@ function buildUserPrompt(args: {
   customOccasion?: string;
   note?: string;
   inspirationFragment?: string;
+  priorSignatures?: string[][];
 }) {
   const excludeClause = args.excludeBatchId
     ? `\n- The user already saw a prior set; compose genuinely different looks this time.`
@@ -188,11 +192,19 @@ function buildUserPrompt(args: {
     ? `\n- User's notes about the occasion: "${args.note}"\n  Read these carefully and let them shape the looks. They override generic occasion assumptions.`
     : "";
 
+  const priorClause =
+    args.priorSignatures && args.priorSignatures.length > 0
+      ? `\n\nYou recently proposed these looks for this occasion. DO NOT repeat them, and DO NOT propose any look that shares more than 1 item with any of them. Rotate the wardrobe — pick different anchors and different shoes when possible:\n${args.priorSignatures
+          .slice(0, 10)
+          .map((sig, i) => `- Prior ${i + 1}: [${sig.join(", ")}]`)
+          .join("\n")}`
+      : "";
+
   return `Compose THREE looks for:
 - Occasion: ${occasionLine}
 - Temperature: ${args.temp_c}°C
 - Mood preference: ${args.mood ?? "not specified"}
-- User's style archetype: ${args.archetype}${noteClause}${excludeClause}
+- User's style archetype: ${args.archetype}${noteClause}${excludeClause}${priorClause}
 
 Eligible wardrobe:
 ${JSON.stringify(args.candidateList, null, 2)}
@@ -435,7 +447,11 @@ function buildCandidateShortlist(
   });
 }
 
-function comboScore(items: CandidateRow[], targetFormality: number) {
+function comboScore(
+  items: CandidateRow[],
+  targetFormality: number,
+  priorItemPenalty?: Map<string, number>,
+) {
   const scores = items
     .map((item) => item.formality_score)
     .filter((score): score is number => typeof score === "number");
@@ -446,7 +462,13 @@ function comboScore(items: CandidateRow[], targetFormality: number) {
   const wearPenalty = items.reduce((sum, item) => sum + (item.wear_count ?? 0), 0) * 1.1;
   const materials = new Set(items.map((item) => item.material).filter(Boolean));
   const textureBonus = Math.max(0, materials.size - 1) * 3;
-  return freshness + textureBonus - formalityPenalty - variancePenalty - wearPenalty;
+  // Penalise items that appeared in recent looks for this occasion.
+  const priorPenalty = priorItemPenalty
+    ? items.reduce((sum, item) => sum + (priorItemPenalty.get(item.id) ?? 0), 0)
+    : 0;
+  // Random jitter so identical inputs don't produce identical outputs.
+  const jitter = Math.random() * 6;
+  return freshness + textureBonus + jitter - formalityPenalty - variancePenalty - wearPenalty - priorPenalty;
 }
 
 function formatItemLabel(item: CandidateRow | undefined) {
@@ -497,6 +519,18 @@ function buildHeuristicLooks(args: HeuristicLookArgs): LookProposal[] {
   const outerwear = shortlist.filter((item) => item.category === "outerwear");
   const outerwearOptions = args.temp_c < 15 ? [undefined, ...outerwear] : [undefined];
 
+  // Per-item penalty: items appearing in more recent prior signatures get
+  // larger penalties (weighted by recency — most recent prior counts most).
+  const priorItemPenalty = new Map<string, number>();
+  const priorSigs = args.priorSignatures ?? [];
+  priorSigs.forEach((sig, idx) => {
+    // weight: most recent prior = ~12, decays to ~3 for the 10th prior
+    const weight = Math.max(3, 12 - idx);
+    for (const id of sig) {
+      priorItemPenalty.set(id, (priorItemPenalty.get(id) ?? 0) + weight);
+    }
+  });
+
   const combos = new Map<string, { items: CandidateRow[]; score: number }>();
   const rememberCombo = (items: CandidateRow[]) => {
     const proposal: LookProposal = {
@@ -507,7 +541,7 @@ function buildHeuristicLooks(args: HeuristicLookArgs): LookProposal[] {
     const validation = validateLook(proposal, shortlist, args.temp_c);
     if (!validation.ok) return;
     const key = proposal.item_ids.slice().sort().join(":");
-    const score = comboScore(items, targetFormality);
+    const score = comboScore(items, targetFormality, priorItemPenalty);
     const existing = combos.get(key);
     if (!existing || score > existing.score) {
       combos.set(key, { items, score });
@@ -532,7 +566,20 @@ function buildHeuristicLooks(args: HeuristicLookArgs): LookProposal[] {
     }
   }
 
-  const sorted = Array.from(combos.values()).sort((a, b) => b.score - a.score);
+  // Reject combos that overlap any prior signature by 2+ items, but only if
+  // there are enough non-overlapping combos available — otherwise fall back
+  // to the full pool so we still return something.
+  const overlapsPrior = (ids: string[]) =>
+    priorSigs.some((sig) => {
+      const set = new Set(sig);
+      const overlap = ids.filter((id) => set.has(id)).length;
+      return overlap >= 2;
+    });
+
+  const allCombos = Array.from(combos.values()).sort((a, b) => b.score - a.score);
+  const fresh = allCombos.filter((c) => !overlapsPrior(c.items.map((i) => i.id)));
+  const sorted = fresh.length >= 3 ? fresh : fresh.length > 0 ? fresh : allCombos;
+
   const chosen: { items: CandidateRow[]; score: number }[] = [];
   for (const combo of sorted) {
     const proposal = { item_ids: combo.items.map((item) => item.id), name: "", rationale: "" };
@@ -641,6 +688,28 @@ export const suggestOutfit = createServerFn({ method: "POST" })
       .maybeSingle();
     const archetype = profile?.style_archetype ?? "classic";
 
+    // 3b. Recent looks for this occasion (last 7 days, up to 10).
+    //     Used to avoid repeating the same composition each time the user
+    //     taps Generate.
+    const sevenDaysAgo = new Date(Date.now() - 7 * 86_400_000).toISOString();
+    const { data: recentOutfits } = await supabase
+      .from("outfits")
+      .select("item_ids, batch_id, generated_at")
+      .eq("user_id", userId)
+      .eq("occasion", data.occasion)
+      .gte("generated_at", sevenDaysAgo)
+      .order("generated_at", { ascending: false })
+      .limit(10);
+    const priorSignatures: string[][] = (recentOutfits ?? [])
+      .map((row) => (Array.isArray(row.item_ids) ? (row.item_ids as string[]) : []))
+      .filter((sig) => sig.length > 0);
+    console.log(
+      "[suggestOutfit] prior signatures:",
+      priorSignatures.length,
+      "for occasion",
+      data.occasion,
+    );
+
     // 4. Hard filters
     const [floor, ceiling] = FORMALITY_RANGE[data.occasion];
     const seasons = seasonsForTemp(data.temp_c);
@@ -729,7 +798,18 @@ export const suggestOutfit = createServerFn({ method: "POST" })
     let validLooks: LookProposal[] = [];
     let lastReasons: string[] = [];
     const batch_id = crypto.randomUUID();
-    const MAX_AI_ATTEMPTS = 1;
+    const MAX_AI_ATTEMPTS = 2;
+
+    // Helper: count overlap between a look and the worst-matching prior signature.
+    const maxPriorOverlap = (ids: string[]) => {
+      let max = 0;
+      for (const sig of priorSignatures) {
+        const set = new Set(sig);
+        const overlap = ids.filter((id) => set.has(id)).length;
+        if (overlap > max) max = overlap;
+      }
+      return max;
+    };
 
     for (let attempt = 0; attempt < MAX_AI_ATTEMPTS; attempt++) {
       const relaxed = attempt === 1 && lastReasons.length > 0;
@@ -740,11 +820,12 @@ export const suggestOutfit = createServerFn({ method: "POST" })
         archetype,
         excludeBatchId: data.exclude_batch_id,
         candidateList,
-        feedback: attempt === 1 ? lastReasons.join(", ") : undefined,
+        feedback: attempt >= 1 ? lastReasons.join(", ") : undefined,
         relaxed,
         customOccasion: data.custom_occasion,
         note: data.note,
         inspirationFragment,
+        priorSignatures,
       });
 
       let raw: string;
@@ -844,10 +925,23 @@ export const suggestOutfit = createServerFn({ method: "POST" })
       });
 
       const strictlyValidLooks = looks.filter((_, idx) => validationResults[idx]?.result.ok);
+
+      // Filter out looks that overlap a prior signature by 2+ items, unless
+      // doing so would leave us with nothing. Tiny wardrobes get a pass.
+      const freshLooks = strictlyValidLooks.filter(
+        (look) => maxPriorOverlap(look.item_ids) < 2,
+      );
+      const usableLooks =
+        freshLooks.length >= 2 || (freshLooks.length >= 1 && strictlyValidLooks.length === freshLooks.length)
+          ? freshLooks
+          : freshLooks.length > 0 && attempt + 1 >= MAX_AI_ATTEMPTS
+            ? freshLooks
+            : strictlyValidLooks;
+
       const distinctValidLooks =
-        strictlyValidLooks.length >= 2
-          ? pickMostDistinctSubset(strictlyValidLooks, 3)
-          : strictlyValidLooks;
+        usableLooks.length >= 2
+          ? pickMostDistinctSubset(usableLooks, 3)
+          : usableLooks;
 
       if (distinctValidLooks.length >= 3) {
         validLooks = distinctValidLooks.slice(0, 3);
@@ -859,19 +953,19 @@ export const suggestOutfit = createServerFn({ method: "POST" })
         break;
       }
 
-      if (strictlyValidLooks.length === 1) {
-        validLooks = strictlyValidLooks;
+      if (usableLooks.length === 1 && attempt + 1 >= MAX_AI_ATTEMPTS) {
+        validLooks = usableLooks;
         break;
       }
 
-      console.error("[suggestOutfit] All looks invalid. Reasons:", reasons);
+      console.error("[suggestOutfit] All looks invalid or repeated. Reasons:", reasons);
 
-      if (attempt === 1) {
-        lastReasons = reasons.length ? reasons : ["incomplete_output"];
-        break;
+      // Set feedback so the next attempt knows what went wrong.
+      const feedbackReasons = [...reasons];
+      if (strictlyValidLooks.length > 0 && freshLooks.length === 0) {
+        feedbackReasons.push("looks_repeated_priors");
       }
-
-      lastReasons = reasons.length ? reasons : ["incomplete_output"];
+      lastReasons = feedbackReasons.length ? feedbackReasons : ["incomplete_output"];
     }
 
     if (validLooks.length === 0) {
@@ -879,6 +973,7 @@ export const suggestOutfit = createServerFn({ method: "POST" })
         candidates: candidatePool,
         occasion: data.occasion,
         temp_c: data.temp_c,
+        priorSignatures,
       });
 
       if (fallbackLooks.length > 0) {
