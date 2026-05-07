@@ -447,7 +447,11 @@ function buildCandidateShortlist(
   });
 }
 
-function comboScore(items: CandidateRow[], targetFormality: number) {
+function comboScore(
+  items: CandidateRow[],
+  targetFormality: number,
+  priorItemPenalty?: Map<string, number>,
+) {
   const scores = items
     .map((item) => item.formality_score)
     .filter((score): score is number => typeof score === "number");
@@ -458,7 +462,13 @@ function comboScore(items: CandidateRow[], targetFormality: number) {
   const wearPenalty = items.reduce((sum, item) => sum + (item.wear_count ?? 0), 0) * 1.1;
   const materials = new Set(items.map((item) => item.material).filter(Boolean));
   const textureBonus = Math.max(0, materials.size - 1) * 3;
-  return freshness + textureBonus - formalityPenalty - variancePenalty - wearPenalty;
+  // Penalise items that appeared in recent looks for this occasion.
+  const priorPenalty = priorItemPenalty
+    ? items.reduce((sum, item) => sum + (priorItemPenalty.get(item.id) ?? 0), 0)
+    : 0;
+  // Random jitter so identical inputs don't produce identical outputs.
+  const jitter = Math.random() * 6;
+  return freshness + textureBonus + jitter - formalityPenalty - variancePenalty - wearPenalty - priorPenalty;
 }
 
 function formatItemLabel(item: CandidateRow | undefined) {
