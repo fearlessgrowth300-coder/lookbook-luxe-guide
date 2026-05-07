@@ -289,6 +289,17 @@ function TodayPage() {
         return;
       }
 
+      // Look up the most recent batch for this occasion so the server can
+      // explicitly avoid repeating it.
+      const { data: lastBatch } = await supabase
+        .from("outfits")
+        .select("batch_id")
+        .eq("user_id", user.id)
+        .eq("occasion", selected)
+        .order("generated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
       const result = await suggestOutfit({
         data: {
           occasion: selected,
@@ -296,6 +307,7 @@ function TodayPage() {
           mood,
           custom_occasion: urlCustom,
           note: urlNote,
+          exclude_batch_id: lastBatch?.batch_id ?? undefined,
         },
       });
 
