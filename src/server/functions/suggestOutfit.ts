@@ -1094,9 +1094,28 @@ export const suggestOutfit = createServerFn({ method: "POST" })
           : usableLooks;
 
       if (distinctValidLooks.length >= 3) {
+        // Shoe distribution check: if there are ≥2 shoes available but the
+        // AI used the same shoe in all 3 looks, retry once with feedback.
+        const shoeIdSet = new Set(shoesList.map((s) => s.id));
+        const shoesUsed = distinctValidLooks.slice(0, 3).map((look) =>
+          look.item_ids.find((id) => shoeIdSet.has(id)),
+        );
+        const uniqueShoes = new Set(shoesUsed.filter(Boolean) as string[]);
+        if (
+          shoesList.length >= 2 &&
+          uniqueShoes.size === 1 &&
+          attempt + 1 < MAX_AI_ATTEMPTS
+        ) {
+          console.log("[suggestOutfit] Single shoe across 3 looks — retrying for distribution.");
+          lastReasons = [
+            "You used the same shoe in all 3 looks but multiple shoes are available. Distribute different shoes across at least 2 of the 3 looks.",
+          ];
+          continue;
+        }
         validLooks = distinctValidLooks.slice(0, 3);
         break;
       }
+
 
       if (distinctValidLooks.length >= 2) {
         validLooks = distinctValidLooks;
