@@ -46,6 +46,23 @@ export default defineConfig({
           ],
         },
         workbox: {
+          // The default precache glob is ["**/*.{js,wasm,css,html}"], which would
+          // sweep in the heavy ML assets: the ONNX runtime wasm (~23 MB, powers
+          // @imgly/background-removal) and the HEIC decoder. Workbox's default
+          // precache cap is 2 MiB and this plugin THROWS past it, so precaching
+          // them broke the build (generateSW). We never want to precache 20+ MB
+          // anyway — that would force every user to download it just to install
+          // the PWA. Exclude them here and cache them at runtime on first use.
+          globIgnores: [
+            "**/*.wasm", // ort-wasm-simd-threaded.jsep-*.wasm (~23 MB)
+            "**/ort*", // onnxruntime-web bundles
+            "**/ort.*", // ort.bundle.min / ort.webgpu.bundle.min
+            "**/heic2any*", // HEIC → JPEG decoder
+            "**/heic-to*",
+          ],
+          // Safety net so an ordinary large JS chunk near the limit can't break
+          // the build again. Heavy ML assets are handled by runtimeCaching below.
+          maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
           // Don't intercept SSR / TanStack internal routes.
           navigateFallbackDenylist: [/^\/~oauth/, /^\/api\//, /^\/_/],
           runtimeCaching: [
@@ -58,6 +75,22 @@ export default defineConfig({
                   maxEntries: 200,
                   maxAgeSeconds: 60 * 60 * 24 * 30,
                 },
+              },
+            },
+            {
+              // The ML/HEIC assets we excluded from precache — cache them the
+              // first time the user actually triggers background removal / a
+              // HEIC upload, so the feature still works offline afterwards.
+              urlPattern: /\/assets\/(ort.*\.(?:js|mjs|wasm)|.*\.wasm|heic.*\.js)$/i,
+              handler: "CacheFirst",
+              options: {
+                cacheName: "ml-assets",
+                expiration: {
+                  maxEntries: 20,
+                  maxAgeSeconds: 60 * 60 * 24 * 30,
+                },
+                cacheableResponse: { statuses: [0, 200] },
+                rangeRequests: true,
               },
             },
           ],
