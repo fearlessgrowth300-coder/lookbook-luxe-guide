@@ -903,42 +903,47 @@ export const suggestOutfit = createServerFn({ method: "POST" })
       };
     }
 
-    // 5. Build candidate list for the LLM
+    // 5. Build candidate list for the LLM — shoes separated from the rest
+    //    so the model decides shoe register first, then builds around it.
     const now = Date.now();
-    const candidateList = candidatePool.map((c) => ({
+    const mapCandidate = (c: CandidateRow) => ({
       id: c.id,
       category: c.category,
       subcategory: c.subcategory,
       formality: c.formality_score,
-      // human color name first; raw hex omitted to discourage echoing
       color_name: hexToColorName(c.color_primary),
       material: c.material,
       season: c.season,
+      wear_count: c.wear_count ?? 0,
       worn_days_ago: c.last_worn
         ? Math.floor((now - new Date(c.last_worn).getTime()) / 86_400_000)
         : null,
       tags: c.tags,
-    }));
+    });
+    const shoesList = candidatePool
+      .filter((c) => c.category === "shoes")
+      .map((c) => ({
+        id: c.id,
+        subcategory: c.subcategory,
+        formality: c.formality_score,
+        color_name: hexToColorName(c.color_primary),
+        material: c.material,
+      }));
+    const otherCandidates = candidatePool
+      .filter((c) => c.category !== "shoes")
+      .map(mapCandidate);
 
     const candidateIds = new Set(candidatePool.map((c) => c.id));
 
-    // 5b. Pinterest inspiration (best-effort, ~24h cached). Never throws —
-    //     a failure simply means the stylist runs without external hints.
-    const inspirationStatus: InspirationStatus = await getInspiration({
-      occasion: data.occasion,
-      mood: data.mood ?? null,
-      archetype,
-    });
-    const inspirationFragment = inspirationPromptFragment(inspirationStatus);
-    console.log("[suggestOutfit] inspiration:", inspirationStatus.state, {
-      pin_count:
-        inspirationStatus.state === "cached" || inspirationStatus.state === "fresh"
-          ? inspirationStatus.data.pin_count
-          : 0,
-    });
+    // 5b. Inspiration disabled (Pinterest API broken). Style DNA picker
+    //     is the planned replacement — see plan.md.
+    const inspirationStatus: InspirationStatus = {
+      state: "skipped",
+      reason: "disabled",
+    } as InspirationStatus;
+    const inspirationDna: string[] = [];
 
-    // 6. Call AI once with a tight timeout; if it stalls or returns bad output,
-    //    fall back to a deterministic local composition so the user still gets looks.
+    // 6. Call AI; fall back to deterministic composition on failure.
     let payload: AIPayload | null = null;
     let validLooks: LookProposal[] = [];
     let lastReasons: string[] = [];
@@ -964,13 +969,15 @@ export const suggestOutfit = createServerFn({ method: "POST" })
         mood: data.mood,
         archetype,
         excludeBatchId: data.exclude_batch_id,
-        candidateList,
+        shoesList,
+        otherCandidates,
         feedback: attempt >= 1 ? lastReasons.join(", ") : undefined,
         relaxed,
         customOccasion: data.custom_occasion,
         note: data.note,
-        inspirationFragment,
         priorSignatures,
+        inspirationDna,
+        singleShoeWarning,
       });
 
       let raw: string;
