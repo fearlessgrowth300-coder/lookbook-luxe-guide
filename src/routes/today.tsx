@@ -300,6 +300,7 @@ function TodayPage() {
         .limit(1)
         .maybeSingle();
 
+      const recentBatchIds = useStylerSession.getState().recentBatchIds;
       const result = await suggestOutfit({
         data: {
           occasion: selected,
@@ -308,6 +309,7 @@ function TodayPage() {
           custom_occasion: urlCustom,
           note: urlNote,
           exclude_batch_id: lastBatch?.batch_id ?? undefined,
+          exclude_recent_batch_ids: recentBatchIds.length > 0 ? recentBatchIds : undefined,
         },
       });
 
