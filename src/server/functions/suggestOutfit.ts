@@ -826,39 +826,30 @@ export const suggestOutfit = createServerFn({ method: "POST" })
     if (data.exclude_recent_batch_ids && data.exclude_recent_batch_ids.length > 0) {
       const { data: recentBatchRows } = await supabase
         .from("outfits")
-        .select("item_ids")
+        .select("item_ids, batch_id")
         .in("batch_id", data.exclude_recent_batch_ids)
         .eq("user_id", userId);
-      const itemFreq: Record<string, number> = {};
       const batchCount = data.exclude_recent_batch_ids.length;
-      const seenPerBatch = new Map<string, Set<string>>();
-      // Count unique batches each item appeared in (approximate via item_ids only).
-      (recentBatchRows ?? []).forEach((row, idx) => {
+      const perBatch = new Map<string, Set<string>>();
+      (recentBatchRows ?? []).forEach((row) => {
+        if (!row.batch_id) return;
         const ids = Array.isArray(row.item_ids) ? (row.item_ids as string[]) : [];
-        const key = `${idx}`;
-        seenPerBatch.set(key, new Set(ids));
+        const existing = perBatch.get(row.batch_id) ?? new Set<string>();
+        ids.forEach((id) => existing.add(id));
+        perBatch.set(row.batch_id, existing);
       });
-      seenPerBatch.forEach((set) => {
+      const itemFreq: Record<string, number> = {};
+      perBatch.forEach((set) =>
         set.forEach((id) => {
           itemFreq[id] = (itemFreq[id] || 0) + 1;
-        });
-      });
+        }),
+      );
       const fullyRepeated = new Set(
         Object.entries(itemFreq)
           .filter(([, freq]) => freq >= batchCount && batchCount >= 2)
           .map(([id]) => id),
       );
       if (fullyRepeated.size > 0) {
-        // Don't strip if it would empty a category. Filter conservatively.
-        for (const cat of ["top", "bottom", "shoes", "dress", "outerwear"]) {
-          const remaining = candidates.filter(
-            (c) => c.category === cat && !fullyRepeated.has(c.id),
-          );
-          if (remaining.length === 0) {
-            // Keep at least one of this category.
-            continue;
-          }
-        }
         for (let i = candidates.length - 1; i >= 0; i--) {
           if (fullyRepeated.has(candidates[i].id)) {
             const cat = candidates[i].category;
