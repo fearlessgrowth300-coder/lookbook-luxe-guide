@@ -6,10 +6,10 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
-async function getAdmin() {
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  return supabaseAdmin;
-}
+
+
+
+
 
 const REF_BUCKET = "user-references";
 
@@ -19,7 +19,7 @@ interface CandidatePhoto {
   is_active: boolean;
   created_at: string | null;
   size: number | null;
-}
+
 
 /** List every reference-photo candidate the user has uploaded. */
 export const listReferencePhotos = createServerFn({ method: "GET" })
