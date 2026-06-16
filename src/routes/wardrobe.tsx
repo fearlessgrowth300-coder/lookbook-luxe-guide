@@ -15,7 +15,7 @@ import { ease, dur, tap } from "@/lib/motion";
 import { prepareUploadAssets } from "@/lib/thumbnail";
 import { readFileToBlob, blobToFile } from "@/lib/safe-file-read";
 import { DbInsertError, getStep, UploadError } from "@/lib/upload-errors";
-import { type Category } from "@/server/mock-ai";
+import { type Category } from "@/lib/mock-ai";
 import { removeBg, warmBgRemoval } from "@/lib/bg-removal";
 import { analyzeWardrobeItem } from "@/server/functions/analyzeItem";
 

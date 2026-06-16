@@ -26,7 +26,7 @@ import { prepareUploadAssets } from "@/lib/thumbnail";
 import { readFileToBlob, blobToFile } from "@/lib/safe-file-read";
 import { removeBg, warmBgRemoval } from "@/lib/bg-removal";
 import { analyzeWardrobeItem } from "@/server/functions/analyzeItem";
-import type { Category } from "@/server/mock-ai";
+import type { Category } from "@/lib/mock-ai";
 
 type SetType =
   | "suit"
