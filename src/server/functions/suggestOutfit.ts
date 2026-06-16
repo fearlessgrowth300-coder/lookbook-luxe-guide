@@ -45,6 +45,8 @@ interface SuggestInput {
   note?: string;
   /** Optional client-provided list of recent batch ids to also avoid. */
   exclude_batch_ids?: string[];
+  /** Recent batch ids from the current session — items appearing across them get heavily penalised. */
+  exclude_recent_batch_ids?: string[];
 }
 
 const FORMALITY_RANGE: Record<Occasion, [number, number]> = {
