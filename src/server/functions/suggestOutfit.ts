@@ -937,10 +937,12 @@ export const suggestOutfit = createServerFn({ method: "POST" })
 
     // 5b. Inspiration disabled (Pinterest API broken). Style DNA picker
     //     is the planned replacement — see plan.md.
+    // 5b. Inspiration disabled (Pinterest API broken). Style DNA picker
+    //     is the planned replacement — see plan.md.
     const inspirationStatus: InspirationStatus = {
       state: "skipped",
-      reason: "disabled",
-    } as InspirationStatus;
+      reason: "no_apify_key",
+    };
     const inspirationDna: string[] = [];
 
     // 6. Call AI; fall back to deterministic composition on failure.
