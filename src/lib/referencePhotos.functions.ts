@@ -19,6 +19,8 @@ interface CandidatePhoto {
   is_active: boolean;
   created_at: string | null;
   size: number | null;
+}
+
 
 
 /** List every reference-photo candidate the user has uploaded. */
