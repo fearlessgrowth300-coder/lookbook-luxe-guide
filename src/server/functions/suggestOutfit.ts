@@ -235,13 +235,15 @@ function buildUserPrompt(args: {
   mood?: Mood;
   archetype: string;
   excludeBatchId?: string;
-  candidateList: unknown[];
+  shoesList: unknown[];
+  otherCandidates: unknown[];
   feedback?: string;
   relaxed?: boolean;
   customOccasion?: string;
   note?: string;
-  inspirationFragment?: string;
   priorSignatures?: string[][];
+  inspirationDna?: string[];
+  singleShoeWarning?: boolean;
 }) {
   const excludeClause = args.excludeBatchId
     ? `\n- The user already saw a prior set; compose genuinely different looks this time.`
@@ -250,7 +252,7 @@ function buildUserPrompt(args: {
     ? `\n\nYour previous attempt had problems: ${args.feedback}. Fix them and try again.`
     : "";
   const relaxedClause = args.relaxed
-    ? `\n\nThis wardrobe is small. You may relax:\n- Formality variance can extend to 4 (not 3).\n- If no outerwear is available and temp is 10-15°C, skip outerwear rather than fail.\nTry again and return valid looks even if not ideal.`
+    ? `\n\nThis wardrobe is small. You may relax:\n- Formality variance can extend to 4 (not 3).\n- Distinct-by-3 may relax to distinct-by-2 if combinations are exhausted.\nTry again and return valid looks even if not ideal.`
     : "";
 
   const occasionLine = args.customOccasion
@@ -262,42 +264,37 @@ function buildUserPrompt(args: {
 
   const priorClause =
     args.priorSignatures && args.priorSignatures.length > 0
-      ? `\n\nYou recently proposed these looks for this occasion. DO NOT repeat them, and DO NOT propose any look that shares more than 1 item with any of them. Rotate the wardrobe — pick different anchors and different shoes when possible:\n${args.priorSignatures
+      ? `\n\nRECENTLY SHOWN (avoid repeating these combinations). Each Look you produce must differ from every prior signature by at least 3 item_ids:\n${args.priorSignatures
           .slice(0, 10)
           .map((sig, i) => `- Prior ${i + 1}: [${sig.join(", ")}]`)
           .join("\n")}`
       : "";
 
-  return `Compose THREE looks for:
+  const dnaClause =
+    args.inspirationDna && args.inspirationDna.length > 0
+      ? `\n- Inspiration DNA: ${args.inspirationDna.join(", ")}\n  Lean into these aesthetic signals when choosing combinations and writing rationales.`
+      : `\n- Inspiration DNA: not set`;
+
+  const singleShoeClause = args.singleShoeWarning
+    ? `\n\nNOTE: only ONE shoe is available for this occasion. Include it in all looks but mention in Look 02 and Look 03 rationales that adding another shoe would diversify the looks.`
+    : "";
+
+  const day = new Date().toLocaleDateString("en-US", { weekday: "long" });
+
+  return `Compose THREE looks (obvious / texture_move / point_of_view) for:
 - Occasion: ${occasionLine}
 - Temperature: ${args.temp_c}°C
-- Mood preference: ${args.mood ?? "not specified"}
-- User's style archetype: ${args.archetype}${noteClause}${excludeClause}${priorClause}
+- Day: ${day}
+- Mood: ${args.mood ?? "unspecified"}
+- Style archetype: ${args.archetype}${dnaClause}${noteClause}${excludeClause}${priorClause}${singleShoeClause}
 
-Eligible wardrobe:
-${JSON.stringify(args.candidateList, null, 2)}
+SHOES IN THIS WARDROBE — assign each shoe to at most 2 of the 3 looks (unless only 1 shoe is available):
+${JSON.stringify(args.shoesList, null, 2)}
 
-Think through the composition before outputting. Return strict JSON in this exact shape:
+ELIGIBLE WARDROBE (non-shoe items):
+${JSON.stringify(args.otherCandidates, null, 2)}
 
-{
-  "reasoning": {
-    "occasion_read": "one sentence on what this occasion + temp actually demands",
-    "palette_strategy": "one sentence on the color direction across all three looks",
-    "anchor_choices": "one sentence per look naming which item you chose as its anchor and why"
-  },
-  "looks": [
-    {
-      "strategy": "expected" | "textured" | "move",
-      "item_ids": ["<uuid>", ...],
-      "name": "<2-4 words, evocative>",
-      "rationale": "<under 40 words, editorial voice, references a specific item or contrast>"
-    },
-    { "strategy": "textured", "item_ids": [...], "name": "...", "rationale": "..." },
-    { "strategy": "move", "item_ids": [...], "name": "...", "rationale": "..." }
-  ]
-}
-
-No markdown. No prose outside the JSON. The "reasoning" field is for your internal thinking and will not be shown to the user, but you must produce it — it forces you to plan before picking.${feedbackClause}${relaxedClause}${args.inspirationFragment ?? ""}`;
+Decide your shoe assignments FIRST, then build each look around its assigned shoe and chosen anchor. Return strict JSON per the Output Format specified in your system instructions. No markdown.${feedbackClause}${relaxedClause}`;
 }
 
 function validateLook(
