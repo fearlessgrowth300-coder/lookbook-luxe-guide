@@ -439,6 +439,7 @@ async function persistStylingLog(args: {
   mode: "strict" | "relaxed" | "fallback";
 }) {
   try {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     await supabaseAdmin.from("styling_logs" as any).insert({
       user_id: args.userId,
       batch_id: args.batchId,
