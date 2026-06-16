@@ -374,9 +374,9 @@ function FacePreviewSection({ userId }: { userId: string }) {
         .maybeSingle();
 
       const renderUrl = outfit?.render_path
-        ? supabase.storage
+        ? (await supabase.storage
             .from("outfit-renders")
-            .getPublicUrl(outfit.render_path).data.publicUrl
+            .createSignedUrl(outfit.render_path, 60 * 60)).data?.signedUrl ?? null
         : null;
 
       return {

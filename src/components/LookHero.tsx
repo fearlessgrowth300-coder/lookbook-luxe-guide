@@ -9,7 +9,7 @@
 // shimmer overlay; on success the mannequin image fades in (420ms) over
 // the flat-lay with the callout labels still visible.
 import { motion, AnimatePresence } from "framer-motion";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { ease } from "@/lib/motion";
 import { hexToColorName } from "@/server/lib/color-names";
@@ -76,11 +76,24 @@ export function LookHero({
     return { leftItems: left, rightItems: right };
   }, [ordered]);
 
-  // Resolve the on-demand mannequin URL (cached after first generation).
-  const mannequinUrl = outfit.mannequin_path
-    ? supabase.storage.from("outfit-renders").getPublicUrl(outfit.mannequin_path)
-        .data.publicUrl
-    : null;
+  // Resolve the on-demand mannequin URL via signed URL (bucket is owner-scoped).
+  const [mannequinUrl, setMannequinUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    if (!outfit.mannequin_path) {
+      setMannequinUrl(null);
+      return;
+    }
+    supabase.storage
+      .from("outfit-renders")
+      .createSignedUrl(outfit.mannequin_path, 60 * 60)
+      .then(({ data }) => {
+        if (!cancelled) setMannequinUrl(data?.signedUrl ?? null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [outfit.mannequin_path]);
 
   const sideW =
     size === "lg" ? "w-[82px] sm:w-[110px]" : "w-[64px] sm:w-[88px]";
