@@ -19,7 +19,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { ease, dur, tap } from "@/lib/motion";
 import { type Occasion } from "@/lib/mock-ai";
 import { suggestOutfit } from "@/lib/suggestOutfit.functions";
-import { generateDailyPrompt } from "@/server/functions/generateDailyPrompt";
+import { generateDailyPrompt } from "@/lib/generateDailyPrompt.functions";
 import { markInstallPromptReady } from "@/components/InstallPrompt";
 
 const ALL_OCC_IDS = ["office", "casual", "evening", "athletic", "formal", "travel"] as const;
