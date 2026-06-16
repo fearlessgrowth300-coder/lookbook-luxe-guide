@@ -9,7 +9,7 @@
 // shimmer overlay; on success the mannequin image fades in (420ms) over
 // the flat-lay with the callout labels still visible.
 import { motion, AnimatePresence } from "framer-motion";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { ease } from "@/lib/motion";
 import { hexToColorName } from "@/server/lib/color-names";
