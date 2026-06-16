@@ -10,7 +10,7 @@ import { LookHero } from "@/components/LookHero";
 import { useAuth } from "@/lib/auth";
 import { supabase } from "@/integrations/supabase/client";
 import { ease, dur, tap } from "@/lib/motion";
-import { mockSuggestOutfit, type Occasion } from "@/server/mock-ai";
+import { mockSuggestOutfit, type Occasion } from "@/lib/mock-ai";
 import { renderOutfit } from "@/server/functions/renderOutfit";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
