@@ -355,17 +355,7 @@ function TodayPage() {
       // First successful generation → arm the install prompt strip.
       markInstallPromptReady();
 
-      // Surface a tiny inspiration status — best-effort enrichment.
-      const insp = "inspiration" in result ? result.inspiration : null;
-      if (insp) {
-        if (insp.state === "fresh") {
-          toast(`Inspired by ${insp.data.pin_count} fresh references ✓`);
-        } else if (insp.state === "cached") {
-          toast(`Inspired by ${insp.data.pin_count} cached references ✓`);
-        } else if (insp.state === "failed") {
-          toast(`Pinterest inspiration unavailable (${insp.reason}) — using your wardrobe only`);
-        }
-      }
+      // Inspiration disabled — Style DNA picker replaces it (planned).
 
       openSheet(result.batch_id);
     } catch (e) {
