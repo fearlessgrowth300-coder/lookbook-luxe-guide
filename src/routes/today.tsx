@@ -14,7 +14,7 @@ import {
 import { AmbientBackdrop } from "@/components/AmbientBackdrop";
 import { TodaySelfCheck } from "@/components/TodaySelfCheck";
 import { useAuth } from "@/lib/auth";
-import { useUI, useThreeLooksSheet, type Mood } from "@/lib/store";
+import { useUI, useThreeLooksSheet, useStylerSession, type Mood } from "@/lib/store";
 import { supabase } from "@/integrations/supabase/client";
 import { ease, dur, tap } from "@/lib/motion";
 import { type Occasion } from "@/server/mock-ai";
