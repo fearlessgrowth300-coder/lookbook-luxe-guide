@@ -15,11 +15,7 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { checkAndIncrement, RateLimitError } from "@/server/lib/rate-limit";
 import { chatCompletion, AIGatewayError } from "@/server/lib/ai-gateway";
 import { hexToColorName } from "@/server/lib/color-names";
-import {
-  getInspiration,
-  inspirationPromptFragment,
-  type InspirationStatus,
-} from "@/server/lib/inspiration";
+import { type InspirationStatus } from "@/server/lib/inspiration";
 
 const OCCASIONS = [
   "office",
