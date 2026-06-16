@@ -181,17 +181,30 @@ interface ReasoningBlock {
   anchor_choices?: string;
 }
 
-type LookStrategy = "expected" | "textured" | "move";
+type LookStrategy =
+  | "expected"
+  | "textured"
+  | "move"
+  | "obvious"
+  | "texture_move"
+  | "point_of_view";
+
+interface LookDetails {
+  color_story?: string;
+  proportion?: string;
+  shoe_note?: string;
+}
 
 interface LookProposal {
   strategy?: LookStrategy;
   item_ids: string[];
   name: string;
   rationale: string;
+  details?: LookDetails;
 }
 
 interface AIPayload {
-  reasoning?: ReasoningBlock;
+  reasoning?: ReasoningBlock & { shoe_strategy?: string };
   looks?: LookProposal[];
 }
 
