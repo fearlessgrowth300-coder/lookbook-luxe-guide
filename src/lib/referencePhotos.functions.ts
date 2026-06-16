@@ -46,7 +46,7 @@ export const listReferencePhotos = createServerFn({ method: "GET" })
     // Auto-heal: if the user has uploaded photos but no active reference is
     // recorded (or the recorded one no longer exists), promote the most
     // recent shot. Without this, renders silently skip identity guidance.
-    const fileNames = new Set((files ?? []).map((f) => `${userId}/${f.name}`));
+    const fileNames = new Set((files ?? []).map((f: { name: string }) => `${userId}/${f.name}`));
     if ((!activePath || !fileNames.has(activePath)) && files && files.length > 0) {
       const promoted = `${userId}/${files[0].name}`;
       const { error: promoteErr } = await supabaseAdmin
