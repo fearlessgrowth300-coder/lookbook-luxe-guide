@@ -17,7 +17,7 @@ import { readFileToBlob, blobToFile } from "@/lib/safe-file-read";
 import { DbInsertError, getStep, UploadError } from "@/lib/upload-errors";
 import { type Category } from "@/lib/mock-ai";
 import { removeBg, warmBgRemoval } from "@/lib/bg-removal";
-import { analyzeWardrobeItem } from "@/server/functions/analyzeItem";
+import { analyzeWardrobeItem } from "@/lib/analyzeItem.functions";
 
 export const Route = createFileRoute("/wardrobe")({
   component: () => (
