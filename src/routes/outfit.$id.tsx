@@ -11,7 +11,7 @@ import { useAuth } from "@/lib/auth";
 import { supabase } from "@/integrations/supabase/client";
 import { ease, dur, tap } from "@/lib/motion";
 import { mockSuggestOutfit, type Occasion } from "@/lib/mock-ai";
-import { renderOutfit } from "@/server/functions/renderOutfit";
+import { renderOutfit } from "@/lib/renderOutfit.functions";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 

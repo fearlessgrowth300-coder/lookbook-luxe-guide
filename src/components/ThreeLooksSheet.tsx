@@ -24,7 +24,7 @@ import { useAuth } from "@/lib/auth";
 import { supabase } from "@/integrations/supabase/client";
 import { ease, tap } from "@/lib/motion";
 import { suggestOutfit } from "@/lib/suggestOutfit.functions";
-import { generateMannequin } from "@/server/functions/generateMannequin";
+import { generateMannequin } from "@/lib/generateMannequin.functions";
 import { type Occasion } from "@/lib/mock-ai";
 
 const OCCASIONS: Occasion[] = [
