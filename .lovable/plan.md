@@ -1,57 +1,76 @@
-# Stop the "same dress every time" problem
 
-## What's happening
+# Stylist overhaul — 4 fixes
 
-When you tap **Office → Generate**, the server runs the same logic with the same inputs every time:
+This is a large change with both UI and backend work. Plan is split so you can approve all of it or pick parts.
 
-- It never looks at what you've already been suggested.
-- The "compose different looks" hint to the AI is vague — it doesn't list the looks to avoid.
-- When the AI fails or the wardrobe is small, a deterministic fallback picks the highest-scoring combo, which is always the same dress + the same shoes.
-- Items recently worn / recently suggested aren't penalised hard enough to shift the result.
+## Fix 1 — Same shoe every time
 
-Your wardrobe right now: 21 tops, 13 bottoms, **1 outerwear, 3 shoes** — so shoe and outerwear repetition is unavoidable, but the *combination* should clearly rotate.
+**1a. Manual formality override in wardrobe edit sheet**
+- Open the wardrobe item edit sheet (currently in `src/routes/wardrobe.tsx` / its sheet component). Add a Formality control showing the vision-detected score plus three pills (Casual 3 / Smart 6 / Formal 9) and a 1–10 slider. On change, write `formality_score` to `wardrobe_items` immediately.
+- Label: "Vision detected: {score}".
 
-## The plan
+**1b. Adaptive shoe candidate pool**
+- In `suggestOutfit.ts`, before composing: pull shoes filtered by occasion's formality range. If <2 pass, expand by ±2. If still 1, keep it but inject a note into the prompt explaining only one shoe is available.
 
-### 1. Track recent looks per occasion
-On the server, before composing, fetch the **last 10 outfits** the user has generated for the same occasion in the last 7 days (`outfits` table, filter by `user_id + occasion`, order by `generated_at desc`). Extract their `item_ids` arrays as **prior signatures**.
+**1c. Real freshness weighting**
+- Replace the existing `candidatePriorityScore` weighting with explicit weighted random selection per category (top, bottom, shoes, outerwear).
+- Weights: ×0.2 if worn in last 7 days, ×0.1 if last 3 days, ×0.4 if `wear_count > 2× category average`.
+- Use this to pre-trim the shortlist passed to the AI so the LLM cannot ignore wear data.
 
-### 2. Tell the AI exactly what to avoid
-Pass the prior signatures into the prompt explicitly:
+## Fix 2 — Variety across generates in same session
 
-```
-You recently proposed these looks for this occasion. Do NOT repeat them
-and do NOT propose looks that share more than 1 item with any of them:
-- Look A: [id1, id2, id3]
-- Look B: [id4, id5, id6]
-...
-```
+**2a. Session batch tracking (frontend)**
+- Add `todayBatchIds: string[]` to `useUI`/new `useStylerSession` Zustand store. On each successful generate, push the new batch_id (cap to last 3).
 
-Then validate it server-side: any returned look that overlaps a prior signature by 2+ items is rejected and the AI is asked again (currently `MAX_AI_ATTEMPTS = 1`; bump to 2 so a retry is possible).
+**2b. Server exclusion**
+- Extend `SuggestInput` with `exclude_recent_batch_ids?: string[]`. Fetch outfits for those batches, build a frequency map, and remove items that appear in all 3 recent batches from the candidate pool. Items in 2/3 get a soft penalty in the weighting.
 
-### 3. Make the heuristic fallback non-deterministic
-Today the fallback (`buildHeuristicLooks`) sorts combos by score and picks the top 3 — same inputs → same output. Change it to:
+**2c. Variety prompt rule**
+- Add explicit "differ by ≥3 items, not 2" rule to user prompt with the recent look summaries.
 
-- Heavily penalise items appearing in prior signatures (e.g. `−15` per overlap).
-- Heavily penalise items with high `wear_count` and recent `last_worn` (already partially done; raise the weight).
-- Add a small random jitter to the score so ties break differently each call.
-- Reject any candidate combo that overlaps any prior signature by 2+ items.
+## Fix 3 — Replace Pinterest with style DNA
 
-### 4. Wire `exclude_batch_id` from the UI
-Currently `today.tsx` calls `suggestOutfit` without `exclude_batch_id`. Pass the most recent batch_id for the same occasion so the server has an explicit "this is the one you just showed me, don't repeat it" anchor.
+**3a. Remove Pinterest**
+- Delete `src/server/lib/inspiration.ts` Apify/Pinterest code paths. Remove `inspirationFragment` wiring from `suggestOutfit.ts`. Drop the broken cache calls. Keep the cache table for now (no migration) — just stop reading/writing.
 
-### 5. Better empty-state message
-If the wardrobe is genuinely too small to produce a fresh look (e.g. only 1 valid combo exists), return a clear message: *"Only one office combination fits your current wardrobe. Add another pair of shoes or a second bottom to unlock variety."* — instead of silently re-serving the same look.
+**3b. Style DNA picker in settings**
+- Add migration: `profiles.inspiration_dna text[] default '{}'`.
+- New section in `src/routes/settings.tsx`: 3×4 grid of curated images. Tapping toggles selection; selected = champagne ring. Each image has hidden tags.
+- Need 12 curated editorial images for `/public/styles/`. **I'll generate these with the image tool unless you have your own.**
+- Save merged tags to `profiles.inspiration_dna`.
 
-## Technical details
+**3c. Pass DNA to stylist prompt**
+- Inject `inspiration_dna` into user prompt with the example guidance from your spec.
 
-Files touched:
-- `src/server/functions/suggestOutfit.ts` — fetch prior outfits, inject prior signatures into prompt + validator, raise wear penalty, jitter score, reject overlapping fallback combos, bump retry to 2.
-- `src/routes/today.tsx` — query latest outfit for the selected occasion and pass `exclude_batch_id`.
-- (Optional) `src/components/ThreeLooksSheet.tsx` — same exclusion wiring for the regenerate-in-sheet flow.
+**3d. (Skipped) Web-search trend signal** — not doing this in v1; we can add later. Confirm if you want it now.
 
-No DB migration needed. No new dependencies.
+## Fix 4 — System prompt overhaul (Marcus Chen)
 
-## Result
+**4a. Replace SYSTEM_PROMPT entirely** in `suggestOutfit.ts` with the Marcus Chen prompt verbatim from your spec.
 
-Each tap on **Generate** for the same occasion will produce a look that differs from your last 10 looks by at least 2 items — until your wardrobe genuinely runs out of fresh combinations, in which case you'll get a clear message explaining why.
+**4b. Restructure user prompt**
+- List shoes SEPARATELY at the top (id, subcategory, formality, color_name).
+- List other candidates below.
+- Include: occasion, temp_c, humidity (if available — currently not fetched, will pass null), precipitation (null for now), day_of_week, mood, archetype, inspiration_dna, recent look summaries, winning/losing pairs (`null` for now — no rating data wired yet).
+- Output schema updated to match Marcus Chen format (`reasoning.shoe_strategy`, `details.color_story`, etc.).
+
+**4c. Server-side shoe distribution check**
+- After validation: if all 3 looks share one shoe AND ≥2 shoes were available, retry once with feedback "Distribute shoes across looks."
+
+## What I'm explicitly NOT doing (confirm if you want)
+- Humidity/precipitation: `generateDailyPrompt` fetches weather; `suggestOutfit` does not. Wiring humidity in needs a weather call inside `suggestOutfit` or passing it from the client. Skip for v1.
+- Winning/losing pairs: no rating UI exists yet. Skip.
+- Web search trend signal in daily prompt: skip.
+- I'll generate 12 mood images with the image tool if you don't provide them.
+
+## Files touched
+- `src/server/functions/suggestOutfit.ts` (system prompt, user prompt, shoe pool, weighted selection, exclusion, shoe distribution check)
+- `src/routes/wardrobe.tsx` and its edit sheet (formality override)
+- `src/routes/settings.tsx` (style DNA picker)
+- `src/routes/today.tsx` and `src/components/ThreeLooksSheet.tsx` (pass `exclude_recent_batch_ids`)
+- `src/lib/store.ts` (session batch tracking)
+- `src/server/lib/inspiration.ts` (gut Pinterest path)
+- New: `public/styles/*.jpg` (12 generated images) + `src/lib/style-dna.ts` (image+tag manifest)
+- DB migration: `profiles.inspiration_dna text[]`
+
+Approve and I'll execute all of it. Or tell me which fixes to skip.
