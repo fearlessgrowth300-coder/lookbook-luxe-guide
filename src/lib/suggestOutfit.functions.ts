@@ -14,7 +14,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 import { checkAndIncrement, RateLimitError } from "@/server/lib/rate-limit";
 import { chatCompletion, AIGatewayError } from "@/server/lib/ai-gateway";
-import { hexToColorName } from "@/server/lib/color-names";
+import { hexToColorName } from "@/lib/color-names";
 import { type InspirationStatus } from "@/server/lib/inspiration";
 
 const OCCASIONS = [

@@ -12,7 +12,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { ease } from "@/lib/motion";
-import { hexToColorName } from "@/server/lib/color-names";
+import { hexToColorName } from "@/lib/color-names";
 
 export interface LookHeroItem {
   id: string;
