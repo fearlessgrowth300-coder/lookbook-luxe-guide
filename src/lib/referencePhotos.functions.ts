@@ -29,6 +29,7 @@ export const listReferencePhotos = createServerFn({ method: "GET" })
     activePath: string | null;
     activeSignedUrl: string | null;
   }> => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { userId } = context;
 
     const { data: profile } = await supabaseAdmin
@@ -97,6 +98,7 @@ export const setActiveReferencePhoto = createServerFn({ method: "POST" })
     return input;
   })
   .handler(async ({ data, context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { userId } = context;
     // Guard: path must live in the caller's folder
     if (data.path && !data.path.startsWith(`${userId}/`)) {
@@ -120,6 +122,7 @@ export const deleteReferencePhoto = createServerFn({ method: "POST" })
     return input;
   })
   .handler(async ({ data, context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { userId } = context;
     if (!data.path.startsWith(`${userId}/`)) {
       throw new Error("forbidden_path");
@@ -144,6 +147,7 @@ export const deleteReferencePhoto = createServerFn({ method: "POST" })
 export const checkReferencePhotoHealth = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { userId } = context;
     const { data: profile } = await supabaseAdmin
       .from("profiles")
