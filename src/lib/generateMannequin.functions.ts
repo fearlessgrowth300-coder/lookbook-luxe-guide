@@ -6,8 +6,6 @@
 // hint. Result is cached to outfits.mannequin_path so re-tapping is instant.
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { generateImage, ImageGenError, dataUrlToBytes } from "@/server/lib/ai-image";
 
 interface MannequinInput {
   outfit_id: string;
@@ -38,6 +36,8 @@ export const generateMannequin = createServerFn({ method: "POST" })
   })
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { generateImage, ImageGenError, dataUrlToBytes } = await import("@/server/lib/ai-image");
 
     // 1. Load outfit (RLS-scoped via user supabase client)
     const { data: outfit, error: outfitErr } = await supabase

@@ -8,8 +8,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { chatCompletion, AIGatewayError } from "@/server/lib/ai-gateway";
-import { checkAndIncrement, RateLimitError } from "@/server/lib/rate-limit";
 
 const InputSchema = z.object({
   /** A data URL (data:image/...;base64,...) OR an https URL the model can fetch. */
