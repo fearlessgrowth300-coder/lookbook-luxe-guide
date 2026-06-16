@@ -50,6 +50,8 @@ export const analyzeWardrobeItem = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => InputSchema.parse(input))
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
+    const { chatCompletion, AIGatewayError } = await import("@/server/lib/ai-gateway");
+    const { checkAndIncrement, RateLimitError } = await import("@/server/lib/rate-limit");
 
     try {
       await checkAndIncrement(supabase, userId, "visionAnalyzeItem", 100);
