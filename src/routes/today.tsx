@@ -359,6 +359,7 @@ function TodayPage() {
 
       // Inspiration disabled — Style DNA picker replaces it (planned).
 
+      useStylerSession.getState().pushBatch(result.batch_id);
       openSheet(result.batch_id);
     } catch (e) {
       console.error("[handleGenerate] threw:", e);
