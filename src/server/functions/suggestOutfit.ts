@@ -782,10 +782,11 @@ export const suggestOutfit = createServerFn({ method: "POST" })
       (profile?.avoid_colors ?? []).map((c) => c.toLowerCase()),
     );
 
+    const passesFormality = (score: number | null, lo: number, hi: number) =>
+      score == null || (score >= lo && score <= hi);
+
     const candidates: CandidateRow[] = (items as CandidateRow[]).filter((it) => {
-      if (it.formality_score != null) {
-        if (it.formality_score < floor || it.formality_score > ceiling) return false;
-      }
+      if (!passesFormality(it.formality_score, floor, ceiling)) return false;
       if (it.season && it.season.length > 0) {
         if (!it.season.some((s) => seasons.includes(s))) return false;
       }
@@ -794,6 +795,85 @@ export const suggestOutfit = createServerFn({ method: "POST" })
       }
       return true;
     });
+
+    // Adaptive shoe pool: if fewer than 2 shoes pass the strict formality
+    // filter, expand the range by ±2 so the user isn't stuck with one shoe.
+    let adaptiveShoes: CandidateRow[] = candidates.filter((c) => c.category === "shoes");
+    if (adaptiveShoes.length < 2) {
+      const wideLo = Math.max(1, floor - 2);
+      const wideHi = Math.min(10, ceiling + 2);
+      const wideShoes = (items as CandidateRow[]).filter((it) => {
+        if (it.category !== "shoes") return false;
+        if (!passesFormality(it.formality_score, wideLo, wideHi)) return false;
+        if (it.season && it.season.length > 0) {
+          if (!it.season.some((s) => seasons.includes(s))) return false;
+        }
+        if (it.color_primary && avoid.has(it.color_primary.toLowerCase())) {
+          return false;
+        }
+        return true;
+      });
+      // Merge in any shoes not already in candidates.
+      const existingShoeIds = new Set(adaptiveShoes.map((s) => s.id));
+      for (const s of wideShoes) {
+        if (!existingShoeIds.has(s.id)) {
+          candidates.push(s);
+          existingShoeIds.add(s.id);
+        }
+      }
+      adaptiveShoes = candidates.filter((c) => c.category === "shoes");
+    }
+    const singleShoeWarning = adaptiveShoes.length === 1;
+
+    // Session-level exclusion: items that appear in ALL of the last few
+    // batches from this session get removed from the candidate pool.
+    if (data.exclude_recent_batch_ids && data.exclude_recent_batch_ids.length > 0) {
+      const { data: recentBatchRows } = await supabase
+        .from("outfits")
+        .select("item_ids")
+        .in("batch_id", data.exclude_recent_batch_ids)
+        .eq("user_id", userId);
+      const itemFreq: Record<string, number> = {};
+      const batchCount = data.exclude_recent_batch_ids.length;
+      const seenPerBatch = new Map<string, Set<string>>();
+      // Count unique batches each item appeared in (approximate via item_ids only).
+      (recentBatchRows ?? []).forEach((row, idx) => {
+        const ids = Array.isArray(row.item_ids) ? (row.item_ids as string[]) : [];
+        const key = `${idx}`;
+        seenPerBatch.set(key, new Set(ids));
+      });
+      seenPerBatch.forEach((set) => {
+        set.forEach((id) => {
+          itemFreq[id] = (itemFreq[id] || 0) + 1;
+        });
+      });
+      const fullyRepeated = new Set(
+        Object.entries(itemFreq)
+          .filter(([, freq]) => freq >= batchCount && batchCount >= 2)
+          .map(([id]) => id),
+      );
+      if (fullyRepeated.size > 0) {
+        // Don't strip if it would empty a category. Filter conservatively.
+        for (const cat of ["top", "bottom", "shoes", "dress", "outerwear"]) {
+          const remaining = candidates.filter(
+            (c) => c.category === cat && !fullyRepeated.has(c.id),
+          );
+          if (remaining.length === 0) {
+            // Keep at least one of this category.
+            continue;
+          }
+        }
+        for (let i = candidates.length - 1; i >= 0; i--) {
+          if (fullyRepeated.has(candidates[i].id)) {
+            const cat = candidates[i].category;
+            const remainingInCat = candidates.filter(
+              (c) => c.category === cat && !fullyRepeated.has(c.id),
+            ).length;
+            if (remainingInCat > 0) candidates.splice(i, 1);
+          }
+        }
+      }
+    }
 
     const candidatePool =
       candidates.length > 18
