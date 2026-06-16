@@ -47,3 +47,22 @@ export const useThreeLooksSheet = create<ThreeLooksSheetState>((set) => ({
   setBatchId: (batchId) => set({ batchId }),
 }));
 
+// ─── Styler session (in-memory only) ─────────────────────────────────────────
+// Tracks the last few batch_ids the user generated in this session, so the
+// server can avoid handing back items from those batches on the next generate.
+interface StylerSessionState {
+  recentBatchIds: string[];
+  pushBatch: (id: string) => void;
+  clear: () => void;
+}
+
+export const useStylerSession = create<StylerSessionState>((set) => ({
+  recentBatchIds: [],
+  pushBatch: (id) =>
+    set((s) => ({
+      recentBatchIds: [id, ...s.recentBatchIds.filter((x) => x !== id)].slice(0, 3),
+    })),
+  clear: () => set({ recentBatchIds: [] }),
+}));
+
+

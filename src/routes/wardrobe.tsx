@@ -1693,24 +1693,52 @@ function EditSheet({
           className="mt-6 w-full border-0 border-b border-ink bg-transparent py-2 font-mono text-[13px] text-graphite placeholder:text-ink/60 focus:border-graphite focus:outline-none"
         />
 
-        <div className="mt-6 flex gap-2">
-          {FORMALITY_OPTIONS.map(({ label, score }) => {
-            const active = formality === score;
-            return (
-              <motion.button
-                {...tap}
-                key={score}
-                onClick={() => setFormality(score)}
-                className={`h-9 flex-1 rounded-full px-4 font-mono text-[11px] uppercase tracking-[0.16em] transition-colors ${
-                  active
-                    ? "bg-graphite text-bone"
-                    : "border border-ink text-ink hover:border-graphite hover:text-graphite"
-                }`}
-              >
-                {label}
-              </motion.button>
-            );
-          })}
+        <div className="mt-8">
+          <div className="flex items-baseline justify-between">
+            <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-ink">
+              Formality
+            </p>
+            <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink/60">
+              Vision detected: {item.formality_score ?? "—"}
+              {" · current: "}
+              {formality}/10
+            </p>
+          </div>
+          <div className="mt-3 flex gap-2">
+            {FORMALITY_OPTIONS.map(({ label, score }) => {
+              const active = formality === score;
+              return (
+                <motion.button
+                  {...tap}
+                  key={score}
+                  onClick={() => setFormality(score)}
+                  className={`h-9 flex-1 rounded-full px-4 font-mono text-[11px] uppercase tracking-[0.16em] transition-colors ${
+                    active
+                      ? "bg-graphite text-bone"
+                      : "border border-ink text-ink hover:border-graphite hover:text-graphite"
+                  }`}
+                >
+                  {label}
+                </motion.button>
+              );
+            })}
+          </div>
+          <input
+            type="range"
+            min={1}
+            max={10}
+            step={1}
+            value={formality}
+            onChange={(e) => setFormality(Number(e.target.value))}
+            className="mt-4 w-full accent-graphite"
+            aria-label="Formality score"
+          />
+          <div className="mt-1 flex justify-between font-mono text-[9px] uppercase tracking-[0.16em] text-ink/50">
+            <span>1 athletic</span>
+            <span>5 casual</span>
+            <span>7 smart</span>
+            <span>9 formal</span>
+          </div>
         </div>
 
         <motion.button

@@ -15,11 +15,7 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { checkAndIncrement, RateLimitError } from "@/server/lib/rate-limit";
 import { chatCompletion, AIGatewayError } from "@/server/lib/ai-gateway";
 import { hexToColorName } from "@/server/lib/color-names";
-import {
-  getInspiration,
-  inspirationPromptFragment,
-  type InspirationStatus,
-} from "@/server/lib/inspiration";
+import { type InspirationStatus } from "@/server/lib/inspiration";
 
 const OCCASIONS = [
   "office",
@@ -45,6 +41,8 @@ interface SuggestInput {
   note?: string;
   /** Optional client-provided list of recent batch ids to also avoid. */
   exclude_batch_ids?: string[];
+  /** Recent batch ids from the current session — items appearing across them get heavily penalised. */
+  exclude_recent_batch_ids?: string[];
 }
 
 const FORMALITY_RANGE: Record<Occasion, [number, number]> = {
@@ -63,62 +61,115 @@ function seasonsForTemp(c: number): string[] {
   return ["summer"];
 }
 
-const SYSTEM_PROMPT = `You are a senior stylist with 15 years in editorial and personal styling. Your aesthetic reference is SSENSE, Mr Porter, Totokaelo, The Row, Margaret Howell, Lemaire — restrained, considered, materials-first. You do NOT do trend-chasing, fast fashion, or loud maximalism. You dress clients whose priority is looking quietly correct: right for the occasion, coherent in color and proportion, with one or two deliberate moves that elevate the outfit above generic.
+const SYSTEM_PROMPT = `You are Marcus Chen, senior personal stylist with 18 years in editorial and private client styling. Your clients are executives, creatives, and culturally-minded men across Lagos, London, and New York. You dress people who care about looking correct — not flashy, not generic, but intentional.
 
-Your styling philosophy has five pillars:
+You were trained at Condé Nast, styled for GQ Africa and Monocle, and now run a private client practice. You think in silhouettes, color temperatures, and what a garment DOES for the person wearing it — not what category it belongs to.
 
-**1. Anchor, then layer.**
-Every outfit starts with ONE anchor piece — the item that carries the look's identity. This is usually the bottom (wool trousers, denim, a well-cut chino) or the statement piece (a knit, a jacket, a shirt with character). Everything else is chosen to serve the anchor. Never build from nothing.
+---
 
-**2. Color discipline.**
-- Use the 60-30-10 rule: 60% dominant neutral, 30% secondary tone, 10% accent.
-- Maximum ONE saturated color per outfit. The rest must be neutrals (black, white, off-white, grey, beige, navy, brown, olive) OR analogous hues within 30° of the saturated piece.
-- Avoid mixing warm neutrals (beige, camel, brown, cream) with cool neutrals (cool grey, pure white, icy blue) unless there's a deliberate bridge piece.
-- Avoid black head-to-toe unless the occasion calls for it (evening, formal). In casual and office, black should be anchored by at least one lighter neutral.
+YOUR FIVE STYLIST INSTINCTS (apply every single time):
 
-**3. Silhouette and proportion.**
-- Balance fitted with relaxed. Never all-fitted (looks costumey) or all-relaxed (looks sloppy).
-- If the top is oversized, the bottom should be cleaner-cut, and vice versa.
-- Length proportions: a shorter jacket pairs with full-length trousers; a longer coat balances a crop or tucked top.
-- Vertical rhythm: break up the body with a belt, a tucked hem, or a color transition at the waist when appropriate.
+**INSTINCT 1: ANCHOR FIRST, THEN BUILD**
+Every look starts with ONE anchor piece — the item that defines the look's identity. Usually the trouser or key top. Everything else serves the anchor. Never start with accessories and work backwards.
 
-**4. Texture and material.**
-- Contrast textures within a tight palette (smooth cotton shirt + textured wool trouser reads richer than two smooth pieces).
-- Match season: heavy wool doesn't belong in 25°C weather; linen doesn't belong in 5°C.
-- Avoid mixing more than one "shiny" material (leather, silk, patent). Two shinies fight each other.
-- Denim is casual unless it's indigo rigid raw denim, which can be dressed up slightly.
+**INSTINCT 2: 60-30-10 COLOR TEMPERATURE**
+60% dominant neutral (navy, cream, camel, olive, grey, white, black).
+30% secondary tone — related to the dominant, not competing.
+10% accent — one deliberate contrast or statement.
+NEVER mix warm neutrals (beige, camel, cream, brown) with cool neutrals (pure white, cool grey, icy blue) unless there is a BRIDGE PIECE in a temperature-neutral color (like stone, taupe, or a textured knit that reads both warm and cool).
 
-**5. Formality coherence.**
-- All items must sit within a 3-point formality variance on the 1-10 scale.
-- A 9-formality blazer cannot be rescued by a 3-formality sneaker. The outfit will look confused.
-- For hybrid looks (smart casual), aim for a 5-7 formality band.
+**INSTINCT 3: ONE THING AT A TIME**
+A look can have: one interesting silhouette, OR one interesting texture, OR one interesting color story. Not all three at once. The eye needs somewhere to rest.
 
-Your three-look output follows a STRATEGIC VARIETY RULE: do not produce three visually similar outfits. Each Look must pursue a different strategy:
-- **Look 01 — The Expected:** the most occasion-appropriate, most universally correct choice. Safe, but deliberate.
-- **Look 02 — The Textured:** built around a material or texture contrast the user might not have tried. Slightly more considered.
-- **Look 03 — The Move:** one unexpected choice (an unusual color pairing, a less obvious formality read, an accessory-led composition). Still correct, but with more of the user's personality showing.
+**INSTINCT 4: PROPORTION IS ARCHITECTURE**
+- Oversized top → cleaner bottom (slim or straight cut)
+- Relaxed trouser → structured top (fitted, tucked, or with defined shoulder)
+- Long outerwear → don't lose the bottom (trouser must extend cleanly below coat hem)
+- Short outerwear → trouser can be any length
+- Wide trousers → footwear with visual weight (loafer, chunky sole) not whisper-thin shoes
 
-Voice rules for rationale:
-- Under 40 words. Editorial, observational.
-- NEVER include hex codes (e.g. "#1C2436"), item UUIDs, raw JSON values, or field names from the candidate list. Reference items by garment type and human color name only ("the olive cargo pants" — never "#727B5C cargo pants" or "the cotton bottom").
-- Always use the human color names provided in each candidate's "color_name" field. Common names: navy, cream, olive, charcoal, camel, burgundy, forest, rust, stone, oatmeal, taupe, sand, ecru, ivory, indigo, denim, sage, cognac, brick, mustard, plum.
-- Never use: "perfect", "stylish", "chic", "elevated", "timeless", "effortless", "classic" (as adjective — "a classic shirt" is fine, "a classic look" is not), "versatile", "sleek", "trendy", "on-trend", "fashion-forward".
-- Never exclaim. Never emoji. Never second-person address.
-- Good: "The wool trousers anchor the look — appropriate for client days, relaxed enough to walk home in."
-- Good: "Two textures, one palette. The knit does the talking."
-- Bad: "This perfect office outfit is elevated and effortless!"
-- Bad: "#727B5C cotton blend cargo pants sets the pace; #1C2436 button-down adds quiet structure."
+**INSTINCT 5: SHOES ARE THE FINAL DECISION, NOT AN AFTERTHOUGHT**
+Shoes set the register of the entire look. A trouser + shirt outfit can read business casual with a clean derby or read creative-casual with a suede loafer. The shoe completes the story.
 
-Name rules (2–4 words, evocative not descriptive):
-- Good: "The Considered Monday", "Soft Power", "Long Way Home", "Quiet Authority", "Late September", "The Understudy".
-- Bad: "Office Outfit", "Blue Shirt Combo", "Casual Friday Look".
+A statement dress shoe (studded loafer, mule, evening-leaning) reads evening-to-smart-formal. Pair with tailored trousers (not denim, not cargo), a clean fitted top (no graphic), minimal accessories so the shoe carries the interest. It ELEVATES rather than overdresses when the rest is restrained.
 
-Hard constraints (must not be violated):
-- Exactly 1 top + 1 bottom, OR 1 dress. Shoes are required.
-- Outerwear only if temp_c < 15.
-- Formality variance ≤ 3.
-- Only use item_ids from the provided wardrobe.
-- Each of the three Looks must differ from the other two by at least 2 item_ids.`;
+---
+
+CLIMATE-AWARE STYLING (Lagos context):
+You understand that Lagos operates in two broad seasons: harmattan (Oct–Feb, dry, dusty, cooler mornings) and wet season (Mar–Sep, humid, hot, sudden rain). Temperature alone doesn't tell the story.
+
+- Above 28°C: breathable fabrics only. No wool, no heavy denim, no multiple layers. Linen, cotton, poplin, light knits.
+- Harmattan: light layering acceptable. Dust = keep shoes less precious (no suede).
+- Rain season: waterproof or easy-clean shoes. Avoid trailing trouser hems.
+- Office (likely air-conditioned): you can suggest a layer the user keeps on indoors.
+
+---
+
+THE THREE-LOOK STRATEGY (ALWAYS follow this):
+
+**LOOK 01 — "THE OBVIOUS" (done perfectly)**
+The most contextually correct interpretation of the occasion. Safe but deliberate. The look that says "I got dressed with intention." Nothing surprising. If a client said "I have a client meeting at 10am" — this is what you'd recommend without hesitation.
+
+**LOOK 02 — "THE TEXTURE MOVE"**
+The same occasion, interpreted through a material or texture contrast the client might not have tried. One unexpected sensory element — a nap, a weave, a surface contrast — but stays within the color discipline of Look 01. This is how you show range without breaking rules.
+
+**LOOK 03 — "THE POINT OF VIEW"**
+The bravest of the three, but never wrong for the occasion. One deliberate choice that reveals personality. A color pairing that's unconventional but correct (olive + burgundy for an evening look). A proportion break. A shoe that elevates instead of matching. For the person who wants to be noticed for the RIGHT reason, not just dressed.
+
+---
+
+RATIONALE WRITING GUIDE:
+
+Voice: magazine editor who writes in short, observed sentences. Not hype. Not instructions. Observation.
+
+GOOD examples:
+- "The olive cargo trouser is doing two things at once — casual enough for Friday, structured enough for the meeting after lunch."
+- "Navy on navy works here because the textures disagree. One smooth, one ribbed. That's the whole look."
+- "The mule reads evening, but the relaxed trouser brings it back to Saturday afternoon."
+- "Camel and cream sound like the same note played twice. They're not — one is warm, one is warm-adjacent."
+
+BANNED words/phrases: perfect, stylish, chic, elevated, timeless, effortless, versatile, sleek, trendy, on-trend, fashion-forward, great for, you'll love, ideal for, polished.
+
+Never exclaim. Never use second person ("you"). Never include hex codes. Never repeat the word "look" more than once. Under 45 words per rationale.
+
+Use the human color name from each candidate's "color_name" field. Never output raw hex.
+
+---
+
+HARD CONSTRAINTS (non-negotiable):
+- Exactly 1 top + 1 bottom, OR 1 dress. Shoes required. Outerwear only if temp_c < 18 or occasion demands.
+- Formality variance across items ≤ 3 (on the 1-10 scale).
+- At most 1 saturated color piece per look. Others = neutrals or analogous.
+- Only use item_ids from the provided wardrobe list. No hallucinated IDs.
+- Each of the 3 Looks must differ from the other 2 by at least 3 item_ids (not just 2).
+- The same shoe must NOT appear in all 3 Looks (unless there is only 1 shoe available — then note this in the rationale of Look 02 and 03 with a 1-sentence "Add another shoe to diversify these looks").
+
+---
+
+OUTPUT FORMAT (strict JSON, no markdown, no prose outside):
+{
+  "reasoning": {
+    "occasion_read": "one sentence",
+    "palette_strategy": "one sentence covering all 3 looks",
+    "shoe_strategy": "which shoes you assigned to which look and why",
+    "anchor_choices": "one anchor per look and why"
+  },
+  "looks": [
+    {
+      "strategy": "obvious",
+      "item_ids": ["uuid", ...],
+      "name": "2-4 word evocative name",
+      "rationale": "under 45 words, editorial voice",
+      "details": {
+        "color_story": "one sentence on color logic",
+        "proportion": "one sentence on silhouette balance",
+        "shoe_note": "one sentence on why this shoe for this look"
+      }
+    },
+    { "strategy": "texture_move", "item_ids": [...], "name": "...", "rationale": "...", "details": {...} },
+    { "strategy": "point_of_view", "item_ids": [...], "name": "...", "rationale": "...", "details": {...} }
+  ]
+}`;
 
 interface ReasoningBlock {
   occasion_read?: string;
@@ -126,17 +177,30 @@ interface ReasoningBlock {
   anchor_choices?: string;
 }
 
-type LookStrategy = "expected" | "textured" | "move";
+type LookStrategy =
+  | "expected"
+  | "textured"
+  | "move"
+  | "obvious"
+  | "texture_move"
+  | "point_of_view";
+
+interface LookDetails {
+  color_story?: string;
+  proportion?: string;
+  shoe_note?: string;
+}
 
 interface LookProposal {
   strategy?: LookStrategy;
   item_ids: string[];
   name: string;
   rationale: string;
+  details?: LookDetails;
 }
 
 interface AIPayload {
-  reasoning?: ReasoningBlock;
+  reasoning?: ReasoningBlock & { shoe_strategy?: string };
   looks?: LookProposal[];
 }
 
@@ -167,13 +231,15 @@ function buildUserPrompt(args: {
   mood?: Mood;
   archetype: string;
   excludeBatchId?: string;
-  candidateList: unknown[];
+  shoesList: unknown[];
+  otherCandidates: unknown[];
   feedback?: string;
   relaxed?: boolean;
   customOccasion?: string;
   note?: string;
-  inspirationFragment?: string;
   priorSignatures?: string[][];
+  inspirationDna?: string[];
+  singleShoeWarning?: boolean;
 }) {
   const excludeClause = args.excludeBatchId
     ? `\n- The user already saw a prior set; compose genuinely different looks this time.`
@@ -182,7 +248,7 @@ function buildUserPrompt(args: {
     ? `\n\nYour previous attempt had problems: ${args.feedback}. Fix them and try again.`
     : "";
   const relaxedClause = args.relaxed
-    ? `\n\nThis wardrobe is small. You may relax:\n- Formality variance can extend to 4 (not 3).\n- If no outerwear is available and temp is 10-15°C, skip outerwear rather than fail.\nTry again and return valid looks even if not ideal.`
+    ? `\n\nThis wardrobe is small. You may relax:\n- Formality variance can extend to 4 (not 3).\n- Distinct-by-3 may relax to distinct-by-2 if combinations are exhausted.\nTry again and return valid looks even if not ideal.`
     : "";
 
   const occasionLine = args.customOccasion
@@ -194,42 +260,37 @@ function buildUserPrompt(args: {
 
   const priorClause =
     args.priorSignatures && args.priorSignatures.length > 0
-      ? `\n\nYou recently proposed these looks for this occasion. DO NOT repeat them, and DO NOT propose any look that shares more than 1 item with any of them. Rotate the wardrobe — pick different anchors and different shoes when possible:\n${args.priorSignatures
+      ? `\n\nRECENTLY SHOWN (avoid repeating these combinations). Each Look you produce must differ from every prior signature by at least 3 item_ids:\n${args.priorSignatures
           .slice(0, 10)
           .map((sig, i) => `- Prior ${i + 1}: [${sig.join(", ")}]`)
           .join("\n")}`
       : "";
 
-  return `Compose THREE looks for:
+  const dnaClause =
+    args.inspirationDna && args.inspirationDna.length > 0
+      ? `\n- Inspiration DNA: ${args.inspirationDna.join(", ")}\n  Lean into these aesthetic signals when choosing combinations and writing rationales.`
+      : `\n- Inspiration DNA: not set`;
+
+  const singleShoeClause = args.singleShoeWarning
+    ? `\n\nNOTE: only ONE shoe is available for this occasion. Include it in all looks but mention in Look 02 and Look 03 rationales that adding another shoe would diversify the looks.`
+    : "";
+
+  const day = new Date().toLocaleDateString("en-US", { weekday: "long" });
+
+  return `Compose THREE looks (obvious / texture_move / point_of_view) for:
 - Occasion: ${occasionLine}
 - Temperature: ${args.temp_c}°C
-- Mood preference: ${args.mood ?? "not specified"}
-- User's style archetype: ${args.archetype}${noteClause}${excludeClause}${priorClause}
+- Day: ${day}
+- Mood: ${args.mood ?? "unspecified"}
+- Style archetype: ${args.archetype}${dnaClause}${noteClause}${excludeClause}${priorClause}${singleShoeClause}
 
-Eligible wardrobe:
-${JSON.stringify(args.candidateList, null, 2)}
+SHOES IN THIS WARDROBE — assign each shoe to at most 2 of the 3 looks (unless only 1 shoe is available):
+${JSON.stringify(args.shoesList, null, 2)}
 
-Think through the composition before outputting. Return strict JSON in this exact shape:
+ELIGIBLE WARDROBE (non-shoe items):
+${JSON.stringify(args.otherCandidates, null, 2)}
 
-{
-  "reasoning": {
-    "occasion_read": "one sentence on what this occasion + temp actually demands",
-    "palette_strategy": "one sentence on the color direction across all three looks",
-    "anchor_choices": "one sentence per look naming which item you chose as its anchor and why"
-  },
-  "looks": [
-    {
-      "strategy": "expected" | "textured" | "move",
-      "item_ids": ["<uuid>", ...],
-      "name": "<2-4 words, evocative>",
-      "rationale": "<under 40 words, editorial voice, references a specific item or contrast>"
-    },
-    { "strategy": "textured", "item_ids": [...], "name": "...", "rationale": "..." },
-    { "strategy": "move", "item_ids": [...], "name": "...", "rationale": "..." }
-  ]
-}
-
-No markdown. No prose outside the JSON. The "reasoning" field is for your internal thinking and will not be shown to the user, but you must produce it — it forces you to plan before picking.${feedbackClause}${relaxedClause}${args.inspirationFragment ?? ""}`;
+Decide your shoe assignments FIRST, then build each look around its assigned shoe and chosen anchor. Return strict JSON per the Output Format specified in your system instructions. No markdown.${feedbackClause}${relaxedClause}`;
 }
 
 function validateLook(
@@ -717,10 +778,11 @@ export const suggestOutfit = createServerFn({ method: "POST" })
       (profile?.avoid_colors ?? []).map((c) => c.toLowerCase()),
     );
 
+    const passesFormality = (score: number | null, lo: number, hi: number) =>
+      score == null || (score >= lo && score <= hi);
+
     const candidates: CandidateRow[] = (items as CandidateRow[]).filter((it) => {
-      if (it.formality_score != null) {
-        if (it.formality_score < floor || it.formality_score > ceiling) return false;
-      }
+      if (!passesFormality(it.formality_score, floor, ceiling)) return false;
       if (it.season && it.season.length > 0) {
         if (!it.season.some((s) => seasons.includes(s))) return false;
       }
@@ -729,6 +791,76 @@ export const suggestOutfit = createServerFn({ method: "POST" })
       }
       return true;
     });
+
+    // Adaptive shoe pool: if fewer than 2 shoes pass the strict formality
+    // filter, expand the range by ±2 so the user isn't stuck with one shoe.
+    let adaptiveShoes: CandidateRow[] = candidates.filter((c) => c.category === "shoes");
+    if (adaptiveShoes.length < 2) {
+      const wideLo = Math.max(1, floor - 2);
+      const wideHi = Math.min(10, ceiling + 2);
+      const wideShoes = (items as CandidateRow[]).filter((it) => {
+        if (it.category !== "shoes") return false;
+        if (!passesFormality(it.formality_score, wideLo, wideHi)) return false;
+        if (it.season && it.season.length > 0) {
+          if (!it.season.some((s) => seasons.includes(s))) return false;
+        }
+        if (it.color_primary && avoid.has(it.color_primary.toLowerCase())) {
+          return false;
+        }
+        return true;
+      });
+      // Merge in any shoes not already in candidates.
+      const existingShoeIds = new Set(adaptiveShoes.map((s) => s.id));
+      for (const s of wideShoes) {
+        if (!existingShoeIds.has(s.id)) {
+          candidates.push(s);
+          existingShoeIds.add(s.id);
+        }
+      }
+      adaptiveShoes = candidates.filter((c) => c.category === "shoes");
+    }
+    const singleShoeWarning = adaptiveShoes.length === 1;
+
+    // Session-level exclusion: items that appear in ALL of the last few
+    // batches from this session get removed from the candidate pool.
+    if (data.exclude_recent_batch_ids && data.exclude_recent_batch_ids.length > 0) {
+      const { data: recentBatchRows } = await supabase
+        .from("outfits")
+        .select("item_ids, batch_id")
+        .in("batch_id", data.exclude_recent_batch_ids)
+        .eq("user_id", userId);
+      const batchCount = data.exclude_recent_batch_ids.length;
+      const perBatch = new Map<string, Set<string>>();
+      (recentBatchRows ?? []).forEach((row) => {
+        if (!row.batch_id) return;
+        const ids = Array.isArray(row.item_ids) ? (row.item_ids as string[]) : [];
+        const existing = perBatch.get(row.batch_id) ?? new Set<string>();
+        ids.forEach((id) => existing.add(id));
+        perBatch.set(row.batch_id, existing);
+      });
+      const itemFreq: Record<string, number> = {};
+      perBatch.forEach((set) =>
+        set.forEach((id) => {
+          itemFreq[id] = (itemFreq[id] || 0) + 1;
+        }),
+      );
+      const fullyRepeated = new Set(
+        Object.entries(itemFreq)
+          .filter(([, freq]) => freq >= batchCount && batchCount >= 2)
+          .map(([id]) => id),
+      );
+      if (fullyRepeated.size > 0) {
+        for (let i = candidates.length - 1; i >= 0; i--) {
+          if (fullyRepeated.has(candidates[i].id)) {
+            const cat = candidates[i].category;
+            const remainingInCat = candidates.filter(
+              (c) => c.category === cat && !fullyRepeated.has(c.id),
+            ).length;
+            if (remainingInCat > 0) candidates.splice(i, 1);
+          }
+        }
+      }
+    }
 
     const candidatePool =
       candidates.length > 18
@@ -758,42 +890,49 @@ export const suggestOutfit = createServerFn({ method: "POST" })
       };
     }
 
-    // 5. Build candidate list for the LLM
+    // 5. Build candidate list for the LLM — shoes separated from the rest
+    //    so the model decides shoe register first, then builds around it.
     const now = Date.now();
-    const candidateList = candidatePool.map((c) => ({
+    const mapCandidate = (c: CandidateRow) => ({
       id: c.id,
       category: c.category,
       subcategory: c.subcategory,
       formality: c.formality_score,
-      // human color name first; raw hex omitted to discourage echoing
       color_name: hexToColorName(c.color_primary),
       material: c.material,
       season: c.season,
+      wear_count: c.wear_count ?? 0,
       worn_days_ago: c.last_worn
         ? Math.floor((now - new Date(c.last_worn).getTime()) / 86_400_000)
         : null,
       tags: c.tags,
-    }));
+    });
+    const shoesList = candidatePool
+      .filter((c) => c.category === "shoes")
+      .map((c) => ({
+        id: c.id,
+        subcategory: c.subcategory,
+        formality: c.formality_score,
+        color_name: hexToColorName(c.color_primary),
+        material: c.material,
+      }));
+    const otherCandidates = candidatePool
+      .filter((c) => c.category !== "shoes")
+      .map(mapCandidate);
 
     const candidateIds = new Set(candidatePool.map((c) => c.id));
 
-    // 5b. Pinterest inspiration (best-effort, ~24h cached). Never throws —
-    //     a failure simply means the stylist runs without external hints.
-    const inspirationStatus: InspirationStatus = await getInspiration({
-      occasion: data.occasion,
-      mood: data.mood ?? null,
-      archetype,
-    });
-    const inspirationFragment = inspirationPromptFragment(inspirationStatus);
-    console.log("[suggestOutfit] inspiration:", inspirationStatus.state, {
-      pin_count:
-        inspirationStatus.state === "cached" || inspirationStatus.state === "fresh"
-          ? inspirationStatus.data.pin_count
-          : 0,
-    });
+    // 5b. Inspiration disabled (Pinterest API broken). Style DNA picker
+    //     is the planned replacement — see plan.md.
+    // 5b. Inspiration disabled (Pinterest API broken). Style DNA picker
+    //     is the planned replacement — see plan.md.
+    const inspirationStatus: InspirationStatus = {
+      state: "skipped",
+      reason: "no_apify_key",
+    };
+    const inspirationDna: string[] = [];
 
-    // 6. Call AI once with a tight timeout; if it stalls or returns bad output,
-    //    fall back to a deterministic local composition so the user still gets looks.
+    // 6. Call AI; fall back to deterministic composition on failure.
     let payload: AIPayload | null = null;
     let validLooks: LookProposal[] = [];
     let lastReasons: string[] = [];
@@ -819,13 +958,15 @@ export const suggestOutfit = createServerFn({ method: "POST" })
         mood: data.mood,
         archetype,
         excludeBatchId: data.exclude_batch_id,
-        candidateList,
+        shoesList,
+        otherCandidates,
         feedback: attempt >= 1 ? lastReasons.join(", ") : undefined,
         relaxed,
         customOccasion: data.custom_occasion,
         note: data.note,
-        inspirationFragment,
         priorSignatures,
+        inspirationDna,
+        singleShoeWarning,
       });
 
       let raw: string;
@@ -944,9 +1085,28 @@ export const suggestOutfit = createServerFn({ method: "POST" })
           : usableLooks;
 
       if (distinctValidLooks.length >= 3) {
+        // Shoe distribution check: if there are ≥2 shoes available but the
+        // AI used the same shoe in all 3 looks, retry once with feedback.
+        const shoeIdSet = new Set(shoesList.map((s) => s.id));
+        const shoesUsed = distinctValidLooks.slice(0, 3).map((look) =>
+          look.item_ids.find((id) => shoeIdSet.has(id)),
+        );
+        const uniqueShoes = new Set(shoesUsed.filter(Boolean) as string[]);
+        if (
+          shoesList.length >= 2 &&
+          uniqueShoes.size === 1 &&
+          attempt + 1 < MAX_AI_ATTEMPTS
+        ) {
+          console.log("[suggestOutfit] Single shoe across 3 looks — retrying for distribution.");
+          lastReasons = [
+            "You used the same shoe in all 3 looks but multiple shoes are available. Distribute different shoes across at least 2 of the 3 looks.",
+          ];
+          continue;
+        }
         validLooks = distinctValidLooks.slice(0, 3);
         break;
       }
+
 
       if (distinctValidLooks.length >= 2) {
         validLooks = distinctValidLooks;
@@ -1029,16 +1189,7 @@ export const suggestOutfit = createServerFn({ method: "POST" })
         custom_occasion: data.custom_occasion ?? null,
         user_note: data.note ?? null,
         low_variety: validLooks.length < 3,
-        inspiration: {
-          state: inspirationStatus.state,
-          ...(inspirationStatus.state === "cached" || inspirationStatus.state === "fresh"
-            ? {
-                pin_count: inspirationStatus.data.pin_count,
-                palette: inspirationStatus.data.palette,
-                aesthetic_tags: inspirationStatus.data.aesthetic_tags,
-              }
-            : { reason: inspirationStatus.reason }),
-        },
+        inspiration: { state: inspirationStatus.state, reason: inspirationStatus.reason },
       },
       batch_id,
       look_sequence: idx + 1,

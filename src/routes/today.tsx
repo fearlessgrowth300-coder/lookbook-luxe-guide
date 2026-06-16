@@ -14,7 +14,7 @@ import {
 import { AmbientBackdrop } from "@/components/AmbientBackdrop";
 import { TodaySelfCheck } from "@/components/TodaySelfCheck";
 import { useAuth } from "@/lib/auth";
-import { useUI, useThreeLooksSheet, type Mood } from "@/lib/store";
+import { useUI, useThreeLooksSheet, useStylerSession, type Mood } from "@/lib/store";
 import { supabase } from "@/integrations/supabase/client";
 import { ease, dur, tap } from "@/lib/motion";
 import { type Occasion } from "@/server/mock-ai";
@@ -300,6 +300,7 @@ function TodayPage() {
         .limit(1)
         .maybeSingle();
 
+      const recentBatchIds = useStylerSession.getState().recentBatchIds;
       const result = await suggestOutfit({
         data: {
           occasion: selected,
@@ -308,6 +309,7 @@ function TodayPage() {
           custom_occasion: urlCustom,
           note: urlNote,
           exclude_batch_id: lastBatch?.batch_id ?? undefined,
+          exclude_recent_batch_ids: recentBatchIds.length > 0 ? recentBatchIds : undefined,
         },
       });
 
@@ -355,18 +357,9 @@ function TodayPage() {
       // First successful generation → arm the install prompt strip.
       markInstallPromptReady();
 
-      // Surface a tiny inspiration status — best-effort enrichment.
-      const insp = "inspiration" in result ? result.inspiration : null;
-      if (insp) {
-        if (insp.state === "fresh") {
-          toast(`Inspired by ${insp.data.pin_count} fresh references ✓`);
-        } else if (insp.state === "cached") {
-          toast(`Inspired by ${insp.data.pin_count} cached references ✓`);
-        } else if (insp.state === "failed") {
-          toast(`Pinterest inspiration unavailable (${insp.reason}) — using your wardrobe only`);
-        }
-      }
+      // Inspiration disabled — Style DNA picker replaces it (planned).
 
+      useStylerSession.getState().pushBatch(result.batch_id);
       openSheet(result.batch_id);
     } catch (e) {
       console.error("[handleGenerate] threw:", e);
