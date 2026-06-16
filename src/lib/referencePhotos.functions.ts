@@ -5,7 +5,11 @@
 // treated as candidate retakes.
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { supabaseAdmin } from "@/integrations/supabase/client.server";
+
+
+
+
+
 
 const REF_BUCKET = "user-references";
 
@@ -17,6 +21,8 @@ interface CandidatePhoto {
   size: number | null;
 }
 
+
+
 /** List every reference-photo candidate the user has uploaded. */
 export const listReferencePhotos = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
@@ -25,6 +31,7 @@ export const listReferencePhotos = createServerFn({ method: "GET" })
     activePath: string | null;
     activeSignedUrl: string | null;
   }> => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { userId } = context;
 
     const { data: profile } = await supabaseAdmin
@@ -41,7 +48,7 @@ export const listReferencePhotos = createServerFn({ method: "GET" })
     // Auto-heal: if the user has uploaded photos but no active reference is
     // recorded (or the recorded one no longer exists), promote the most
     // recent shot. Without this, renders silently skip identity guidance.
-    const fileNames = new Set((files ?? []).map((f) => `${userId}/${f.name}`));
+    const fileNames = new Set((files ?? []).map((f: { name: string }) => `${userId}/${f.name}`));
     if ((!activePath || !fileNames.has(activePath)) && files && files.length > 0) {
       const promoted = `${userId}/${files[0].name}`;
       const { error: promoteErr } = await supabaseAdmin
@@ -93,6 +100,7 @@ export const setActiveReferencePhoto = createServerFn({ method: "POST" })
     return input;
   })
   .handler(async ({ data, context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { userId } = context;
     // Guard: path must live in the caller's folder
     if (data.path && !data.path.startsWith(`${userId}/`)) {
@@ -116,6 +124,7 @@ export const deleteReferencePhoto = createServerFn({ method: "POST" })
     return input;
   })
   .handler(async ({ data, context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { userId } = context;
     if (!data.path.startsWith(`${userId}/`)) {
       throw new Error("forbidden_path");
@@ -140,6 +149,7 @@ export const deleteReferencePhoto = createServerFn({ method: "POST" })
 export const checkReferencePhotoHealth = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { userId } = context;
     const { data: profile } = await supabaseAdmin
       .from("profiles")
