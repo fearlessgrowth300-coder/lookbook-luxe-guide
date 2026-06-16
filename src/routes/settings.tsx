@@ -21,8 +21,8 @@ import {
   setActiveReferencePhoto,
   deleteReferencePhoto,
   checkReferencePhotoHealth,
-} from "@/server/functions/referencePhotos";
-import { getIntegrationStatus } from "@/server/functions/integrationStatus";
+} from "@/lib/referencePhotos.functions";
+import { getIntegrationStatus } from "@/lib/integrationStatus.functions";
 
 export const Route = createFileRoute("/settings")({
   component: () => (
