@@ -23,7 +23,7 @@ import { LookHero } from "@/components/LookHero";
 import { useAuth } from "@/lib/auth";
 import { supabase } from "@/integrations/supabase/client";
 import { ease, tap } from "@/lib/motion";
-import { suggestOutfit } from "@/server/functions/suggestOutfit";
+import { suggestOutfit } from "@/lib/suggestOutfit.functions";
 import { generateMannequin } from "@/server/functions/generateMannequin";
 import { type Occasion } from "@/lib/mock-ai";
 

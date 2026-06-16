@@ -11,7 +11,7 @@
 // 8. Insert valid looks into `outfits` with shared batch_id.
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { supabaseAdmin } from "@/integrations/supabase/client.server";
+
 import { checkAndIncrement, RateLimitError } from "@/server/lib/rate-limit";
 import { chatCompletion, AIGatewayError } from "@/server/lib/ai-gateway";
 import { hexToColorName } from "@/server/lib/color-names";
@@ -439,6 +439,7 @@ async function persistStylingLog(args: {
   mode: "strict" | "relaxed" | "fallback";
 }) {
   try {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     await supabaseAdmin.from("styling_logs" as any).insert({
       user_id: args.userId,
       batch_id: args.batchId,
@@ -710,6 +711,7 @@ export const suggestOutfit = createServerFn({ method: "POST" })
   })
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     try {
     try {
       await checkAndIncrement(supabase, userId, "suggestOutfit", 30);
